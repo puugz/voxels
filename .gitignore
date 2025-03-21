@@ -1,0 +1,14 @@
+.vs
+out
+bin
+.idea
+.build
+
+*.exe
+*.pdb
+*.rdi
+*.cap
+*.zip
+
+ols.json
+imgui.ini

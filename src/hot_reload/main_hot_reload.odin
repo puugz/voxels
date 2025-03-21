@@ -60,7 +60,7 @@ load_game_api :: proc(api_version: int) -> (api: Game_API, ok: bool) {
   mod_time, mod_time_error := os.last_write_time_by_name(GAME_DLL_PATH)
   if mod_time_error != os.ERROR_NONE {
     fmt.printfln(
-      "Failed getting last write time of " + GAME_DLL_PATH + ", error code: {1}",
+      "Failed getting last write time of " + GAME_DLL_PATH + ", error code: %v",
       mod_time_error,
     )
     return

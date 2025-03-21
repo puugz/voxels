@@ -27,8 +27,7 @@ Game_Memory :: struct {
   proj_mat: mat4,
 
   rotation: f32,
-  // gl_context: sdl.GLContext,
-  // im_ctx:     ^im.Context,
+  im_ctx: ^im.Context,
 }
 
 // shader uniform buffer object struct
@@ -42,12 +41,12 @@ g_mem: ^Game_Memory
 game_tick :: proc() -> bool {
   event: sdl.Event
   for sdl.PollEvent(&event) {
+    imgui_impl_sdl3.ProcessEvent(&event)
+
     #partial switch event.type {
       case .QUIT:                                         return false
       case .KEY_DOWN: if event.key.scancode == .ESCAPE do return false
     }
-
-    // imgui_impl_sdl3.ProcessEvent(&event)
   }
 
   device := g_mem.device
@@ -65,37 +64,62 @@ game_tick :: proc() -> bool {
   }
 
   if swapchain_tex != nil {
-    color_target := sdl.GPUColorTargetInfo{
-      texture     = swapchain_tex,
-      load_op     = .CLEAR,
-      clear_color = {0, 0.2, 0.4, 1.0},
-      store_op    = .STORE,
-    }
-    render_pass := sdl.BeginGPURenderPass(cmd_buffer, &color_target, 1, nil)
+    // MARK: clear render pass
+    {
+      color_target := sdl.GPUColorTargetInfo{
+        texture     = swapchain_tex,
+        clear_color = {0, 0.2, 0.4, 1.0},
+        load_op     = .CLEAR,
+        store_op    = .STORE,
+      }
 
-    sdl.BindGPUGraphicsPipeline(render_pass, g_mem.pipeline)
-    sdl.PushGPUVertexUniformData(cmd_buffer, 0, &ubo, size_of(ubo))
-    sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
-    sdl.EndGPURenderPass(render_pass)
+      render_pass := sdl.BeginGPURenderPass(cmd_buffer, &color_target, 1, nil)
+      defer sdl.EndGPURenderPass(render_pass)
+
+      sdl.BindGPUGraphicsPipeline(render_pass, g_mem.pipeline)
+      sdl.PushGPUVertexUniformData(cmd_buffer, 0, &ubo, size_of(ubo))
+      sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
+    }
+
+    imgui_impl_sdlgpu3.NewFrame()
+    imgui_impl_sdl3.NewFrame()
+    im.NewFrame()
+
+    im.ShowDemoWindow()
+    if im.Begin("Test window") {
+      defer im.End()
+      if im.Button("Quit") do quit = true
+    }
+
+    // ui_render()
+
+    im.Render()
+    draw_data := im.GetDrawData()
+
+    // MARK: imgui render pass
+    {
+      color_target := sdl.GPUColorTargetInfo{
+        texture     = swapchain_tex,
+        // clear_color = {0, 0.2, 0.4, 1.0},
+        load_op     = .LOAD,
+        store_op    = .STORE,
+      }
+
+      imgui_impl_sdlgpu3.PrepareDrawData(draw_data, cmd_buffer)
+      imgui_render_pass := sdl.BeginGPURenderPass(cmd_buffer, &color_target, 1, nil)
+      defer sdl.EndGPURenderPass(imgui_render_pass)
+      imgui_impl_sdlgpu3.RenderDrawData(draw_data, cmd_buffer, imgui_render_pass)
+    }
+
+    // when !DISABLE_DOCKING {
+    //   // backup_ctx := sdl.GL_GetCurrentContext()
+    //   im.UpdatePlatformWindows()
+    //   im.RenderPlatformWindowsDefault()
+    //   // sdl.GL_MakeCurrent(g_mem.window, backup_ctx)
+    // }
   }
 
   assert(sdl.SubmitGPUCommandBuffer(cmd_buffer))
-
-  // imgui_impl_opengl3.NewFrame()
-  // imgui_impl_sdl3.NewFrame()
-  // im.NewFrame()
-
-  // ui_render()
-
-  // im.Render()
-  // imgui_impl_opengl3.RenderDrawData(im.GetDrawData())
-
-  // when !DISABLE_DOCKING {
-  //   backup_ctx := sdl.GL_GetCurrentContext()
-  //   im.UpdatePlatformWindows()
-  //   im.RenderPlatformWindowsDefault()
-  //   sdl.GL_MakeCurrent(g_mem.window, backup_ctx)
-  // }
 
   return true
 }
@@ -171,35 +195,39 @@ game_init :: proc() {
   g_mem.proj_mat = linalg.matrix4_perspective_f32(70, aspect_ratio, 0.001, 1000)
 
   // MARK:init imgui
-  // im.CHECKVERSION()
-  // g_mem.im_ctx = im.CreateContext() // io.Fonts
+  im.CHECKVERSION()
+  g_mem.im_ctx = im.CreateContext() // io.Fonts
 
-  // im.SetCurrentContext(g_mem.im_ctx)
+  im.SetCurrentContext(g_mem.im_ctx)
 
-  // style := &g_mem.im_ctx.Style
-  // style.WindowRounding    = 4
-  // style.FrameRounding     = 4
-  // style.ChildRounding     = 4
-  // style.ScrollbarRounding = 4
-  // style.WindowTitleAlign  = {0.5, 0.5}
-  // // style.WindowBorderSize = 0
+  style := &g_mem.im_ctx.Style
+  style.WindowRounding    = 4
+  style.FrameRounding     = 4
+  style.ChildRounding     = 4
+  style.ScrollbarRounding = 4
+  style.WindowTitleAlign  = {0.5, 0.5}
+  // style.WindowBorderSize = 0
 
-  // io := im.GetIO()
-  // io.ConfigFlags += {.NavEnableKeyboard, .NavEnableGamepad}
+  io := im.GetIO()
+  io.ConfigFlags += {.NavEnableKeyboard, .NavEnableGamepad}
 
-  // when !DISABLE_DOCKING {
-  //   io.ConfigFlags += {.DockingEnable, .ViewportsEnable}
+  when !DISABLE_DOCKING {
+    io.ConfigFlags += {.DockingEnable, .ViewportsEnable}
 
-  //   style.Colors[im.Col.WindowBg].w = 1
-  // }
+    style.Colors[im.Col.WindowBg].w = 1
+  }
 
-  // // im.FontAtlas_AddFontFromFileTTF(io.Fonts, "assets/1980.ttf", 20.0)
-  // im.StyleColorsDark()
+  // im.FontAtlas_AddFontFromFileTTF(io.Fonts, "assets/1980.ttf", 20.0)
+  im.StyleColorsDark()
 
-  // // im.FontAtlas_Build(io.Fonts)
+  // im.FontAtlas_Build(io.Fonts)
 
-  // imgui_impl_sdl3.InitForOpenGL(g_mem.window, g_mem.gl_context)
-  // imgui_impl_opengl3.Init()
+  imgui_impl_sdl3.InitForSDLGPU(g_mem.window)
+  imgui_impl_sdlgpu3.Init(&(imgui_impl_sdlgpu3.Init_Info {
+    Device            = g_mem.device,
+    ColorTargetFormat = sdl.GetGPUSwapchainTextureFormat(g_mem.device, g_mem.window),
+    MSAASamples       = ._1,
+  }))
 }
 
 @(export)
@@ -213,9 +241,9 @@ game_shutdown_window :: proc() {
   defer sdl.DestroyWindow(g_mem.window)
   // defer sdl.GL_DestroyContext(g_mem.gl_context)
   // defer rl.Close()
-  // defer im.DestroyContext()
-  // defer imgui_impl_sdl3.Shutdown()
-  // defer imgui_impl_opengl3.Shutdown()
+  defer im.DestroyContext()
+  defer imgui_impl_sdl3.Shutdown()
+  defer imgui_impl_sdlgpu3.Shutdown()
 }
 
 @(export)
@@ -239,14 +267,14 @@ game_hot_reload :: proc(mem: rawptr) {
 
 @(export)
 game_force_reload :: proc() -> bool {
-  // return im.IsKeyPressed(.F5, false)
-  return false
+  return im.IsKeyPressed(.F5, false)
+  // return false
 }
 
 @(export)
 game_force_restart :: proc() -> bool {
-  // return im.IsKeyPressed(.F6, false)
-  return false
+  return im.IsKeyPressed(.F6, false)
+  // return false
 }
 
 // World :: struct {

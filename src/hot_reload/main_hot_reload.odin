@@ -134,7 +134,7 @@ main :: proc() {
 
   old_game_apis := make([dynamic]Game_API, default_allocator)
 
-  for game_api.tick() {
+  for !game_api.tick() {
     force_reload  := game_api.force_reload()
     force_restart := game_api.force_restart()
     reload        := force_reload || force_restart

@@ -42,7 +42,7 @@ main :: proc() {
 
   game.game_init()
 
-  for game.game_tick() {
+  for !game.game_tick() {
     when USE_TRACKING_ALLOCATOR {
       for b in tracking_allocator.bad_free_array {
         log.error("Bad free at: %v", b.location)

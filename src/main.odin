@@ -38,14 +38,14 @@ UBO :: struct {
 g_mem: ^Game_Memory
 
 @(export)
-game_tick :: proc() -> bool {
+game_tick :: proc() -> (quit: bool) {
   event: sdl.Event
   for sdl.PollEvent(&event) {
     imgui_impl_sdl3.ProcessEvent(&event)
 
     #partial switch event.type {
-      case .QUIT:                                         return false
-      case .KEY_DOWN: if event.key.scancode == .ESCAPE do return false
+      case .QUIT:                                         return true
+      case .KEY_DOWN: if event.key.scancode == .ESCAPE do return true
     }
   }
 
@@ -99,10 +99,9 @@ game_tick :: proc() -> bool {
     // MARK: imgui render pass
     {
       color_target := sdl.GPUColorTargetInfo{
-        texture     = swapchain_tex,
-        // clear_color = {0, 0.2, 0.4, 1.0},
-        load_op     = .LOAD,
-        store_op    = .STORE,
+        texture  = swapchain_tex,
+        load_op  = .LOAD,
+        store_op = .STORE,
       }
 
       imgui_impl_sdlgpu3.PrepareDrawData(draw_data, cmd_buffer)
@@ -121,7 +120,7 @@ game_tick :: proc() -> bool {
 
   assert(sdl.SubmitGPUCommandBuffer(cmd_buffer))
 
-  return true
+  return
 }
 
 @(export)
@@ -134,17 +133,13 @@ game_init :: proc() {
   }
 
   assert(sdl.Init({ .VIDEO }), "Could not init SDL3")
-  sdl.SetLogPriorities(.VERBOSE)
-
-  // sdl.GL_SetAttribute(sdl.GL_CONTEXT_PROFILE_MASK, cast(i32) sdl.GL_CONTEXT_PROFILE_CORE)
-  // sdl.GL_SetAttribute(sdl.GL_CONTEXT_MAJOR_VERSION, 4)
-  // sdl.GL_SetAttribute(sdl.GL_CONTEXT_MINOR_VERSION, 3)
-  // sdl.SetHint(sdl.HINT_MOUSE_FOCUS_CLICKTHROUGH, "1")
+  when ODIN_DEBUG {
+    sdl.SetLogPriorities(.VERBOSE)
+    // use custom callback to make sdl call core:log
+  }
 
   g_mem.window = sdl.CreateWindow("title", WINDOW_WIDTH, WINDOW_HEIGHT, { .OPENGL, .RESIZABLE })
   assert(g_mem.window != nil, "Could not create window")
-
-  // g_mem.gl_context = sdl.GL_CreateContext(g_mem.window)
 
   g_mem.device = sdl.CreateGPUDevice({.SPIRV}, ODIN_DEBUG, nil)
   assert(g_mem.device != nil, "Could not create GPU device")

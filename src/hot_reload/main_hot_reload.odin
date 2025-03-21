@@ -39,7 +39,7 @@ copy_dll :: proc(to: string) -> bool {
 }
 
 Game_API :: struct {
-  lib:         dynlib.Library,
+  lib: dynlib.Library,
 
   // init_window:     proc(),
   init:            proc(),

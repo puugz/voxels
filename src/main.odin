@@ -1,9 +1,10 @@
 package main
 
+import "core:log"
 import "core:fmt"
 import "core:time"
 import "core:strings"
-// import "core:math/linalg"
+import "core:math/linalg"
 
 // import rl "vendor:raylib/rlgl"
 import sdl "vendor:sdl3"
@@ -18,12 +19,22 @@ DISABLE_DOCKING :: #config(DISABLE_DOCKING, false)
 
 vec2 :: [2]f32
 vec3 :: [2]f32
+mat4 :: matrix[4,4]f32
 
 Game_Memory :: struct {
-  window:     ^sdl.Window,
-  gl_context: sdl.GLContext,
+  window:   ^sdl.Window,
+  device:   ^sdl.GPUDevice,
+  pipeline: ^sdl.GPUGraphicsPipeline,
+  proj_mat: mat4,
+
+  rotation: f32,
+  // gl_context: sdl.GLContext,
   // im_ctx:     ^im.Context,
-  test: int,
+}
+
+// shader uniform buffer object struct
+UBO :: struct {
+  mvp: mat4,
 }
 
 g_mem: ^Game_Memory
@@ -39,6 +50,37 @@ game_tick :: proc() -> bool {
 
     // imgui_impl_sdl3.ProcessEvent(&event)
   }
+
+  device := g_mem.device
+  window := g_mem.window
+
+  // render
+  cmd_buffer := sdl.AcquireGPUCommandBuffer(device)
+  swapchain_tex: ^sdl.GPUTexture
+
+  assert(sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buffer, window, &swapchain_tex, nil, nil))
+
+  model_mat := linalg.matrix4_rotate_f32(g_mem.rotation, {0, 1, 0})
+  ubo := UBO{
+    mvp = g_mem.proj_mat * model_mat
+  }
+
+  if swapchain_tex != nil {
+    color_target := sdl.GPUColorTargetInfo{
+      texture     = swapchain_tex,
+      load_op     = .CLEAR,
+      clear_color = {0, 0.2, 0.4, 1.0},
+      store_op    = .STORE,
+    }
+    render_pass := sdl.BeginGPURenderPass(cmd_buffer, &color_target, 1, nil)
+
+    sdl.BindGPUGraphicsPipeline(render_pass, g_mem.pipeline)
+    sdl.PushGPUVertexUniformData(cmd_buffer, 0, &ubo, size_of(ubo))
+    sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
+    sdl.EndGPURenderPass(render_pass)
+  }
+
+  assert(sdl.SubmitGPUCommandBuffer(cmd_buffer))
 
   // imgui_impl_opengl3.NewFrame()
   // imgui_impl_sdl3.NewFrame()
@@ -56,38 +98,78 @@ game_tick :: proc() -> bool {
   //   sdl.GL_MakeCurrent(g_mem.window, backup_ctx)
   // }
 
-  sdl.GL_SwapWindow(g_mem.window)
-
   return true
 }
 
 @(export)
 game_init :: proc() {
   if g_mem == nil {
-    g_mem = new(Game_Memory)
+    g_mem  = new(Game_Memory)
+    g_mem^ = {
+      rotation = 0,
+    }
   }
 
   assert(sdl.Init({ .VIDEO }), "Could not init SDL3")
+  sdl.SetLogPriorities(.VERBOSE)
 
-  sdl.GL_SetAttribute(sdl.GL_CONTEXT_PROFILE_MASK, cast(i32) sdl.GL_CONTEXT_PROFILE_CORE)
-  sdl.GL_SetAttribute(sdl.GL_CONTEXT_MAJOR_VERSION, 4)
-  sdl.GL_SetAttribute(sdl.GL_CONTEXT_MINOR_VERSION, 3)
-  sdl.SetHint(sdl.HINT_MOUSE_FOCUS_CLICKTHROUGH, "1")
+  // sdl.GL_SetAttribute(sdl.GL_CONTEXT_PROFILE_MASK, cast(i32) sdl.GL_CONTEXT_PROFILE_CORE)
+  // sdl.GL_SetAttribute(sdl.GL_CONTEXT_MAJOR_VERSION, 4)
+  // sdl.GL_SetAttribute(sdl.GL_CONTEXT_MINOR_VERSION, 3)
+  // sdl.SetHint(sdl.HINT_MOUSE_FOCUS_CLICKTHROUGH, "1")
 
   g_mem.window = sdl.CreateWindow("title", WINDOW_WIDTH, WINDOW_HEIGHT, { .OPENGL, .RESIZABLE })
   assert(g_mem.window != nil, "Could not create window")
 
-  g_mem.gl_context = sdl.GL_CreateContext(g_mem.window)
+  // g_mem.gl_context = sdl.GL_CreateContext(g_mem.window)
 
-  // rl.LoadExtensions(cast(rawptr)sdl.GL_GetProcAddress)
-  // rl.Init(WINDOW_WIDTH, WINDOW_HEIGHT)
+  g_mem.device = sdl.CreateGPUDevice({.SPIRV}, ODIN_DEBUG, nil)
+  assert(g_mem.device != nil, "Could not create GPU device")
 
-  // rl.Viewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
-  // rl.MatrixMode(rl.PROJECTION)
-  // rl.LoadIdentity()
-  // rl.Ortho(0, WINDOW_WIDTH, WINDOW_HEIGHT, 0, 0, 1)
-  // rl.MatrixMode(rl.MODELVIEW)
-  // rl.LoadIdentity()
+  assert(sdl.ClaimWindowForGPUDevice(g_mem.device, g_mem.window))
+
+  VERT_SHADER_CODE :: #load("../shaders/shader.spv.vert")
+  FRAG_SHADER_CODE :: #load("../shaders/shader.spv.frag")
+
+  create_shader :: proc(
+    device:             ^sdl.GPUDevice,
+    code:                []u8,
+    stage:               sdl.GPUShaderStage,
+    num_uniform_buffers: u32,
+  ) -> ^sdl.GPUShader {
+    return sdl.CreateGPUShader(device, {
+      code_size           = len(code),
+      code                = raw_data(code),
+      entrypoint          = "main",
+      format              = {.SPIRV},
+      stage               = stage,
+      num_uniform_buffers = num_uniform_buffers,
+    })
+  }
+
+  vert_shader := create_shader(g_mem.device, VERT_SHADER_CODE, .VERTEX, 1)
+  frag_shader := create_shader(g_mem.device, FRAG_SHADER_CODE, .FRAGMENT, 0)
+
+  g_mem.pipeline = sdl.CreateGPUGraphicsPipeline(g_mem.device, {
+    vertex_shader   = vert_shader,
+    fragment_shader = frag_shader,
+    primitive_type  = .TRIANGLELIST,
+    target_info     = {
+      num_color_targets         = 1,
+      color_target_descriptions = &(sdl.GPUColorTargetDescription{
+        format = sdl.GetGPUSwapchainTextureFormat(g_mem.device, g_mem.window)
+      }),
+    }
+  })
+
+  sdl.ReleaseGPUShader(g_mem.device, vert_shader)
+  sdl.ReleaseGPUShader(g_mem.device, frag_shader)
+
+  window_size: [2]i32
+  assert(sdl.GetWindowSize(g_mem.window, &window_size.x, &window_size.y))
+
+  aspect_ratio := f32(window_size.x) / f32(window_size.y)
+  g_mem.proj_mat = linalg.matrix4_perspective_f32(70, aspect_ratio, 0.001, 1000)
 
   // MARK:init imgui
   // im.CHECKVERSION()
@@ -130,7 +212,7 @@ game_shutdown :: proc() {
 game_shutdown_window :: proc() {
   defer sdl.Quit()
   defer sdl.DestroyWindow(g_mem.window)
-  defer sdl.GL_DestroyContext(g_mem.gl_context)
+  // defer sdl.GL_DestroyContext(g_mem.gl_context)
   // defer rl.Close()
   // defer im.DestroyContext()
   // defer imgui_impl_sdl3.Shutdown()
@@ -154,7 +236,6 @@ game_hot_reload :: proc(mem: rawptr) {
   // Here you can also set your own global variables. A good idea is to make
   // your global variables into pointers that point to something inside
   // `g_mem`.
-  // im.SetCurrentContext(g_mem.im_ctx)
 }
 
 @(export)

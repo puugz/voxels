@@ -6,11 +6,10 @@ import "core:time"
 import "core:strings"
 import "core:math/linalg"
 
-// import rl "vendor:raylib/rlgl"
 import sdl "vendor:sdl3"
-// import im "imgui"
-// import imgui_impl_sdl3 "imgui/sdl3"
-// import imgui_impl_opengl3 "imgui/opengl3"
+import im "imgui"
+import "imgui/imgui_impl_sdl3"
+import "imgui/imgui_impl_sdlgpu3"
 
 WINDOW_WIDTH  :: 1024
 WINDOW_HEIGHT :: 768

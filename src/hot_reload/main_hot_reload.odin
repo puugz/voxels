@@ -169,7 +169,7 @@ main :: proc() {
           // if the size of the game memory has changed. That would
           // probably lead to a crash anyways.
 
-					game_api.shutdown_window()
+          game_api.shutdown_window()
           game_api.shutdown()
           
           reset_tracking_allocator(&tracking_allocator)

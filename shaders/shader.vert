@@ -1,19 +1,11 @@
 #version 460
 
-layout (set = 1, binding = 0) uniform UBO {
+layout(set=1, binding=0) uniform UBO {
   mat4 mvp;
 };
 
+layout(location=0) in vec3 pos;
+
 void main() {
-  vec4 pos;
-
-         if (gl_VertexIndex == 0) {
-    pos = vec4(-.5, -.5, 0., 1.);
-  } else if (gl_VertexIndex == 1) {
-    pos = vec4(0.,   .5, 0., 1.);
-  } else if (gl_VertexIndex == 2) {
-    pos = vec4( .5, -.5, 0., 1.);
-  }
-
-  gl_Position = mvp * pos;
+  gl_Position = mvp * vec4(pos, 1.);
 }

@@ -2,6 +2,7 @@ package main
 
 import "core:log"
 import "core:fmt"
+import "core:mem"
 import "core:time"
 import "core:strings"
 import "core:strconv"
@@ -32,6 +33,8 @@ Game_Memory :: struct {
   device:     ^sdl.GPUDevice           `hide`,
   pipeline:   ^sdl.GPUGraphicsPipeline `hide`,
   im_context: ^im.Context              `hide`,
+
+  vertex_buf: ^sdl.GPUBuffer `hide`,
 
   proj_mat:       mat4 `hide`,
   last_ticks:     u64  `hide`,
@@ -104,6 +107,7 @@ game_tick :: proc() -> (quit: bool) {
       defer sdl.EndGPURenderPass(render_pass)
 
       sdl.BindGPUGraphicsPipeline(render_pass, g_mem.pipeline)
+      sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding{ buffer = g_mem.vertex_buf }), 1)
       sdl.PushGPUVertexUniformData(cmd_buffer, 0, &ubo, size_of(ubo))
       sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
     }
@@ -111,6 +115,8 @@ game_tick :: proc() -> (quit: bool) {
     imgui_impl_sdlgpu3.NewFrame()
     imgui_impl_sdl3.NewFrame()
     im.NewFrame()
+
+    im.ShowMetricsWindow()
 
     if g_mem.show_imgui_demo {
       im.ShowDemoWindow()
@@ -194,11 +200,75 @@ game_init :: proc() {
   vert_shader := create_shader(g_mem.device, VERT_SHADER_CODE, .VERTEX, 1)
   frag_shader := create_shader(g_mem.device, FRAG_SHADER_CODE, .FRAGMENT, 0)
 
+  // describe vertex attributes and vertex buffers in the pipeline
+  vertices := []vec3 {
+    {-.5, -.5, 0},
+    {  0, +.5, 0},
+    {+.5, -.5, 0},
+  }
+  vertices_bytes := len(vertices) * size_of(vertices[0])
+
+  g_mem.vertex_buf = sdl.CreateGPUBuffer(g_mem.device, {
+    usage = {.VERTEX},
+    size  = cast(u32) vertices_bytes
+  })
+  assert(g_mem.vertex_buf != nil)
+
+  // upload vertex data to vertex buffer
+  // * create transfer buffer (cpu -> gpu)
+  transfer_buf := sdl.CreateGPUTransferBuffer(g_mem.device, {
+    usage = .UPLOAD,
+    size  = cast(u32) vertices_bytes // +indices
+  })
+  assert(transfer_buf != nil)
+
+  // * map transfer buffer memory & copy from cpu
+  transfer_mem := sdl.MapGPUTransferBuffer(g_mem.device, transfer_buf, false)
+  mem.copy(transfer_mem, rawptr(raw_data(vertices)), vertices_bytes)
+  sdl.UnmapGPUTransferBuffer(g_mem.device, transfer_buf)
+
+  // * begin copy pass
+  {
+    copy_cmd_buf := sdl.AcquireGPUCommandBuffer(g_mem.device)
+    defer assert(sdl.SubmitGPUCommandBuffer(copy_cmd_buf))
+
+    copy_pass := sdl.BeginGPUCopyPass(copy_cmd_buf)
+    defer sdl.EndGPUCopyPass(copy_pass)
+
+    // * invoke upload command
+    sdl.UploadToGPUBuffer(
+      copy_pass,
+      { transfer_buffer = transfer_buf },
+      { buffer = g_mem.vertex_buf, size = cast(u32) vertices_bytes },
+      false,
+    )
+
+    // * end copy pass and submit
+  }
+
+  vertex_attrs := []sdl.GPUVertexAttribute {
+    {
+      // position attr
+      location = 0,
+      format   = .FLOAT3,
+      offset   = 0,
+    }
+  }
+
   g_mem.pipeline = sdl.CreateGPUGraphicsPipeline(g_mem.device, {
-    vertex_shader   = vert_shader,
-    fragment_shader = frag_shader,
-    primitive_type  = .TRIANGLELIST,
-    target_info     = {
+    vertex_shader      = vert_shader,
+    fragment_shader    = frag_shader,
+    primitive_type     = .TRIANGLELIST,
+    vertex_input_state = {
+      num_vertex_buffers         = 1,
+      vertex_buffer_descriptions = &(sdl.GPUVertexBufferDescription {
+        slot = 0,
+        pitch = size_of(vec3),
+      }),
+      num_vertex_attributes = cast(u32) len(vertex_attrs),
+      vertex_attributes     = raw_data(vertex_attrs)
+    },
+    target_info = {
       num_color_targets         = 1,
       color_target_descriptions = &(sdl.GPUColorTargetDescription{
         format = sdl.GetGPUSwapchainTextureFormat(g_mem.device, g_mem.window),

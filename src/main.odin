@@ -251,18 +251,20 @@ game_init :: proc() {
     // * end copy pass and submit
   }
 
+  sdl.ReleaseGPUTransferBuffer(g_mem.device, transfer_buf)
+
   vertex_attrs := []sdl.GPUVertexAttribute {
     {
       // position attr
       location = 0,
       format   = .FLOAT3,
-      offset   = 0,
+      offset   = cast(u32) offset_of(Vertex, pos),
     },
     {
       // color attr
       location = 1,
       format   = .FLOAT3,
-      offset   = size_of(vec3),
+      offset   = cast(u32) offset_of(Vertex, color),
     }
   }
 

@@ -171,7 +171,7 @@ main :: proc() {
 
           game_api.shutdown_window()
           game_api.shutdown()
-          
+
           reset_tracking_allocator(&tracking_allocator)
           for &g in old_game_apis do unload_game_api(&g)
 

@@ -4,6 +4,9 @@ import "core:log"
 import "core:fmt"
 import "core:time"
 import "core:strings"
+import "core:strconv"
+import "core:reflect"
+import "core:math"
 import "core:math/linalg"
 
 import sdl "vendor:sdl3"
@@ -13,32 +16,55 @@ import "imgui/imgui_impl_sdlgpu3"
 
 WINDOW_WIDTH  :: 1024
 WINDOW_HEIGHT :: 768
+ASPECT_RATIO  :: f32(WINDOW_WIDTH) / f32(WINDOW_HEIGHT)
 
 DISABLE_DOCKING :: #config(DISABLE_DOCKING, false)
 
 vec2 :: [2]f32
-vec3 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+RGB  :: vec3
+RGBA :: vec4
 mat4 :: matrix[4,4]f32
 
 Game_Memory :: struct {
-  window:   ^sdl.Window,
-  device:   ^sdl.GPUDevice,
-  pipeline: ^sdl.GPUGraphicsPipeline,
-  proj_mat: mat4,
+  window:     ^sdl.Window              `hide`,
+  device:     ^sdl.GPUDevice           `hide`,
+  pipeline:   ^sdl.GPUGraphicsPipeline `hide`,
+  im_context: ^im.Context              `hide`,
 
-  rotation: f32,
-  im_ctx: ^im.Context,
+  proj_mat:       mat4 `hide`,
+  last_ticks:     u64  `hide`,
+  rotation:       f32  `min_max:"0,360" angle`,
+  rotation_delta: f32  `min_max:"0,360" angle`,  // in radians
+  fov:            f32  `min_max:"30,110" angle`, // in radians
+
+  clear_color:     RGBA `no_alpha`,
+  show_imgui_demo: bool,
+}
+
+game_memory_default :: #force_inline proc() -> Game_Memory {
+  return {
+    rotation_delta = linalg.to_radians(f32(90)),
+    fov            = linalg.to_radians(f32(70)),
+    clear_color    = rgba(0x101010FF),
+  }
 }
 
 // shader uniform buffer object struct
-UBO :: struct {
+UBO :: struct #max_field_align(16) {
   mvp: mat4,
 }
 
 g_mem: ^Game_Memory
 
+// MARK: tick
 @(export)
 game_tick :: proc() -> (quit: bool) {
+  ticks           := sdl.GetTicks()
+  delta_time      := f32(ticks - g_mem.last_ticks) / sdl.MS_PER_SECOND
+  g_mem.last_ticks = ticks
+
   event: sdl.Event
   for sdl.PollEvent(&event) {
     imgui_impl_sdl3.ProcessEvent(&event)
@@ -52,15 +78,19 @@ game_tick :: proc() -> (quit: bool) {
   device := g_mem.device
   window := g_mem.window
 
+  // update
+  g_mem.rotation = wrap_radians(g_mem.rotation + g_mem.rotation_delta * delta_time)
+  g_mem.proj_mat = linalg.matrix4_perspective(g_mem.fov, ASPECT_RATIO, 0.001, 1000)
+
   // render
   cmd_buffer := sdl.AcquireGPUCommandBuffer(device)
   swapchain_tex: ^sdl.GPUTexture
 
   assert(sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buffer, window, &swapchain_tex, nil, nil))
 
-  model_mat := linalg.matrix4_rotate_f32(g_mem.rotation, {0, 1, 0})
+  model_mat := linalg.matrix4_translate_f32({0, 0, -5}) * linalg.matrix4_rotate_f32(g_mem.rotation, {0, 1, 0})
   ubo := UBO{
-    mvp = g_mem.proj_mat * model_mat
+    mvp = g_mem.proj_mat * model_mat,
   }
 
   if swapchain_tex != nil {
@@ -68,7 +98,7 @@ game_tick :: proc() -> (quit: bool) {
     {
       color_target := sdl.GPUColorTargetInfo{
         texture     = swapchain_tex,
-        clear_color = {0, 0.2, 0.4, 1.0},
+        clear_color = cast(sdl.FColor) g_mem.clear_color,
         load_op     = .CLEAR,
         store_op    = .STORE,
       }
@@ -85,12 +115,11 @@ game_tick :: proc() -> (quit: bool) {
     imgui_impl_sdl3.NewFrame()
     im.NewFrame()
 
-    im.ShowDemoWindow()
-    if im.Begin("Test window") {
-      defer im.End()
-      if im.Button("Quit") do quit = true
+    if g_mem.show_imgui_demo {
+      im.ShowDemoWindow()
     }
 
+    ui_game_memory("Game Memory")
     // ui_render()
 
     im.Render()
@@ -110,12 +139,12 @@ game_tick :: proc() -> (quit: bool) {
       imgui_impl_sdlgpu3.RenderDrawData(draw_data, cmd_buffer, imgui_render_pass)
     }
 
-    // when !DISABLE_DOCKING {
-    //   // backup_ctx := sdl.GL_GetCurrentContext()
-    //   im.UpdatePlatformWindows()
-    //   im.RenderPlatformWindowsDefault()
-    //   // sdl.GL_MakeCurrent(g_mem.window, backup_ctx)
-    // }
+    when !DISABLE_DOCKING {
+      // backup_ctx := sdl.GL_GetCurrentContext()
+      // im.UpdatePlatformWindows()
+      // im.RenderPlatformWindowsDefault()
+      // sdl.GL_MakeCurrent(g_mem.window, backup_ctx)
+    }
   }
 
   assert(sdl.SubmitGPUCommandBuffer(cmd_buffer))
@@ -127,9 +156,7 @@ game_tick :: proc() -> (quit: bool) {
 game_init :: proc() {
   if g_mem == nil {
     g_mem  = new(Game_Memory)
-    g_mem^ = {
-      rotation = 0,
-    }
+    g_mem^ = game_memory_default()
   }
 
   assert(sdl.Init({ .VIDEO }), "Could not init SDL3")
@@ -137,6 +164,8 @@ game_init :: proc() {
     sdl.SetLogPriorities(.VERBOSE)
     // use custom callback to make sdl call core:log
   }
+
+  g_mem.last_ticks = sdl.GetTicks()
 
   g_mem.window = sdl.CreateWindow("title", WINDOW_WIDTH, WINDOW_HEIGHT, { .OPENGL, .RESIZABLE })
   assert(g_mem.window != nil, "Could not create window")
@@ -175,33 +204,34 @@ game_init :: proc() {
     target_info     = {
       num_color_targets         = 1,
       color_target_descriptions = &(sdl.GPUColorTargetDescription{
-        format = sdl.GetGPUSwapchainTextureFormat(g_mem.device, g_mem.window)
+        format = sdl.GetGPUSwapchainTextureFormat(g_mem.device, g_mem.window),
       }),
-    }
+    },
   })
 
   sdl.ReleaseGPUShader(g_mem.device, vert_shader)
   sdl.ReleaseGPUShader(g_mem.device, frag_shader)
 
-  window_size: [2]i32
-  assert(sdl.GetWindowSize(g_mem.window, &window_size.x, &window_size.y))
+  // window_size: [2]i32
+  // assert(sdl.GetWindowSize(g_mem.window, &window_size.x, &window_size.y))
 
-  aspect_ratio := f32(window_size.x) / f32(window_size.y)
-  g_mem.proj_mat = linalg.matrix4_perspective_f32(70, aspect_ratio, 0.001, 1000)
+  // aspect_ratio := f32(window_size.x) / f32(window_size.y)
 
   // MARK:init imgui
   im.CHECKVERSION()
-  g_mem.im_ctx = im.CreateContext() // io.Fonts
+  g_mem.im_context = im.CreateContext() // io.Fonts
 
-  im.SetCurrentContext(g_mem.im_ctx)
+  im.SetCurrentContext(g_mem.im_context)
 
-  style := &g_mem.im_ctx.Style
-  style.WindowRounding    = 4
-  style.FrameRounding     = 4
-  style.ChildRounding     = 4
-  style.ScrollbarRounding = 4
+  ROUNDING :: 4
+  style := &g_mem.im_context.Style
+  style.WindowRounding    = ROUNDING
+  style.ChildRounding     = ROUNDING
+  style.FrameRounding     = ROUNDING
+  style.PopupRounding     = ROUNDING
+  style.ScrollbarRounding = ROUNDING
+  style.GrabRounding      = ROUNDING
   style.WindowTitleAlign  = {0.5, 0.5}
-  // style.WindowBorderSize = 0
 
   io := im.GetIO()
   io.ConfigFlags += {.NavEnableKeyboard, .NavEnableGamepad}
@@ -258,6 +288,7 @@ game_hot_reload :: proc(mem: rawptr) {
   // Here you can also set your own global variables. A good idea is to make
   // your global variables into pointers that point to something inside
   // `g_mem`.
+  im.SetCurrentContext(g_mem.im_context)
 }
 
 @(export)
@@ -296,6 +327,97 @@ game_force_restart :: proc() -> bool {
 // }
 
 // // @MARK: ui_render
+ui_game_memory :: #force_inline proc(title: cstring) {
+  if im.Begin(title) {
+    for field in reflect.struct_fields_zipped(Game_Memory) {
+      hide := strings.contains(cast(string)field.tag, "hide")
+      if hide do continue
+
+      disabled := strings.contains(cast(string)field.tag, "disabled")
+
+      field_value := reflect.struct_field_value(&g_mem, field)
+      field_ptr   := rawptr(uintptr(g_mem) + field.offset)
+      field_name  := __(field.name)
+
+      im.BeginDisabled(disabled); defer im.EndDisabled()
+
+      #partial switch type in field.type.variant {
+        case reflect.Type_Info_Integer:
+          if _, ok := field_value.(u64); ok {
+            im.InputInt(field_name, cast(^i32) field_ptr, flags = {.ReadOnly})
+          }
+        case reflect.Type_Info_Float:
+          if _, ok := field_value.(f32); ok {
+            slider := strings.contains(cast(string)field.tag, "slider")
+            angle  := strings.contains(cast(string)field.tag, "angle")
+            drag   := strings.contains(cast(string)field.tag, "drag")
+            min, max: f32
+ 
+            if value, ok := reflect.struct_tag_lookup(field.tag, "min_max"); ok {
+              if res, err := strings.split(value, ",", context.temp_allocator); err == .None {
+                if len(res) >= 2 {
+                  min = cast(f32) strconv.atof(res[0])
+                  max = cast(f32) strconv.atof(res[1])
+                }
+              }
+            }
+
+            ptr := cast(^f32) field_ptr
+            // im.SetNextItemWidth(180)
+            if drag {
+              im.DragFloat(field_name, ptr, 1, min, max)
+            } else if angle {
+              im.SliderAngle(field_name, ptr, min, max)
+            } else if slider {
+              im.SliderFloat(field_name, ptr, min, max)
+            } else {
+              im.InputFloat(field_name, ptr)
+            }
+          }
+        case reflect.Type_Info_Boolean:
+          if _, ok := field_value.(bool); ok {
+            im.Checkbox(field_name, cast(^bool) field_ptr)
+          }
+        case reflect.Type_Info_Array:
+          if _, ok := field_value.([3]f32); ok {
+            // RGB Color
+            ptr := cast(^[3]f32) field_ptr
+            im.ColorEdit3(field_name, ptr)
+          } else if _, ok = field_value.([4]f32); ok {
+            // RGBA Color
+            no_alpha := strings.contains(cast(string)field.tag, "no_alpha")
+
+            flags: im.ColorEditFlags
+            if no_alpha do flags += {.NoAlpha}
+
+            ptr := cast(^[4]f32) field_ptr
+            im.ColorEdit4(field_name, ptr, flags)
+          }
+        // case reflect.Type_Info_Matrix:
+        //   if _, ok := field_value.(mat4); ok {
+        //     mat := cast(^mat4) field_ptr
+
+        //     w := im.CalcItemWidth() / 4
+
+        //     im.Text(field_name)
+        //     for y in 0 ..< 4 {
+        //       for x in 0 ..< 4 {
+        //         im.PushIDInt(i32(x + y * 4))
+        //         im.SetNextItemWidth(w)
+        //         im.InputFloat("##", &mat[x][y])
+        //         im.SameLine()
+        //         im.PopID()
+        //       }
+        //       im.NewLine()
+        //     }
+        //   }
+        case: im.Text("%s", field_name)
+      }
+    }
+  }
+  im.End()
+}
+
 // ui_render :: proc() {
 //   im.ShowDemoWindow()
 //   im.ShowStyleEditor(nil)
@@ -446,7 +568,22 @@ game_force_restart :: proc() -> bool {
 //   }
 // }
 
-// // @MARK: util
-// temp_cstr :: proc(str: string) -> cstring {
-//   return strings.clone_to_cstring(str, context.temp_allocator)
-// }
+// @MARK: util
+__ :: proc(str: string) -> cstring {
+  return strings.clone_to_cstring(str, context.temp_allocator)
+}
+
+rgba :: proc(color: u32) -> (out: RGBA) {
+  out.r = f32((color >> 24) & 0xFF) / 255.0
+  out.g = f32((color >> 16) & 0xFF) / 255.0
+  out.b = f32((color >>  8) & 0xFF) / 255.0
+  out.a = f32( color        & 0xFF) / 255.0
+  return
+}
+
+wrap_radians :: proc(rad: f32) -> (wrapped: f32) {
+  // return f32(linalg.mod(rad + linalg.TAU, 2 * linalg.TAU) - linalg.TAU)
+  wrapped = linalg.mod(rad, linalg.TAU)
+  if wrapped < 0 do wrapped += linalg.TAU
+  return
+}

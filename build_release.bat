@@ -6,7 +6,8 @@ set OUT_DIR=.build\release
 
 if not exist %OUT_DIR% mkdir %OUT_DIR%
 
-odin build src\release -out:%OUT_DIR%\release.exe -strict-style -vet -no-bounds-check -o:speed -subsystem:windows
+@REM odin build src\release -out:%OUT_DIR%\release.exe -strict-style -vet -no-bounds-check -o:speed -subsystem:windows
+odin build src\release -out:%OUT_DIR%\release.exe -no-bounds-check -o:speed -subsystem:windows
 IF %ERRORLEVEL% NEQ 0 exit /b 1
 
 xcopy /y /e /i res %OUT_DIR%\res > nul

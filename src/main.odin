@@ -201,12 +201,17 @@ game_init :: proc() {
   frag_shader := create_shader(g_mem.device, FRAG_SHADER_CODE, .FRAGMENT, 0)
 
   // describe vertex attributes and vertex buffers in the pipeline
-  vertices := []vec3 {
-    {-.5, -.5, 0},
-    {  0, +.5, 0},
-    {+.5, -.5, 0},
+  Vertex :: struct {
+    using pos: vec3,
+    color: RGB,
   }
-  vertices_bytes := len(vertices) * size_of(vertices[0])
+
+  vertices := []Vertex {
+    { pos = {-.5, -.5, 0}, color = {1, 0, 0} },
+    { pos = {  0, +.5, 0}, color = {0, 1, 0} },
+    { pos = {+.5, -.5, 0}, color = {0, 0, 1} },
+  }
+  vertices_bytes := len(vertices) * size_of(Vertex)
 
   g_mem.vertex_buf = sdl.CreateGPUBuffer(g_mem.device, {
     usage = {.VERTEX},
@@ -252,6 +257,12 @@ game_init :: proc() {
       location = 0,
       format   = .FLOAT3,
       offset   = 0,
+    },
+    {
+      // color attr
+      location = 1,
+      format   = .FLOAT3,
+      offset   = size_of(vec3),
     }
   }
 
@@ -263,7 +274,7 @@ game_init :: proc() {
       num_vertex_buffers         = 1,
       vertex_buffer_descriptions = &(sdl.GPUVertexBufferDescription {
         slot = 0,
-        pitch = size_of(vec3),
+        pitch = size_of(Vertex),
       }),
       num_vertex_attributes = cast(u32) len(vertex_attrs),
       vertex_attributes     = raw_data(vertex_attrs)

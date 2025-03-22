@@ -39,7 +39,7 @@ Game_Memory :: struct {
   rotation_delta: f32  `min_max:"0,360" angle`,  // in radians
   fov:            f32  `min_max:"30,110" angle`, // in radians
 
-  clear_color:     RGBA `no_alpha`,
+  clear_color:     RGBA `spacing no_alpha`,
   show_imgui_demo: bool,
 }
 
@@ -75,18 +75,15 @@ game_tick :: proc() -> (quit: bool) {
     }
   }
 
-  device := g_mem.device
-  window := g_mem.window
-
   // update
   g_mem.rotation = wrap_radians(g_mem.rotation + g_mem.rotation_delta * delta_time)
   g_mem.proj_mat = linalg.matrix4_perspective(g_mem.fov, ASPECT_RATIO, 0.001, 1000)
 
   // render
-  cmd_buffer := sdl.AcquireGPUCommandBuffer(device)
+  cmd_buffer := sdl.AcquireGPUCommandBuffer(g_mem.device)
   swapchain_tex: ^sdl.GPUTexture
 
-  assert(sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buffer, window, &swapchain_tex, nil, nil))
+  assert(sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buffer, g_mem.window, &swapchain_tex, nil, nil))
 
   model_mat := linalg.matrix4_translate_f32({0, 0, -5}) * linalg.matrix4_rotate_f32(g_mem.rotation, {0, 1, 0})
   ubo := UBO{
@@ -334,12 +331,14 @@ ui_game_memory :: #force_inline proc(title: cstring) {
       if hide do continue
 
       disabled := strings.contains(cast(string)field.tag, "disabled")
+      spacing  := strings.contains(cast(string)field.tag, "spacing")
 
       field_value := reflect.struct_field_value(&g_mem, field)
       field_ptr   := rawptr(uintptr(g_mem) + field.offset)
       field_name  := __(field.name)
 
       im.BeginDisabled(disabled); defer im.EndDisabled()
+      if spacing do im.NewLine()
 
       #partial switch type in field.type.variant {
         case reflect.Type_Info_Integer:

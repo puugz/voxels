@@ -48,7 +48,7 @@ echo %PDB_NUMBER% > %GAME_PDBS_DIR%\pdb_number
 :: monitors this file and does the hot reload when it changes.
 echo Building game.dll
 @REM odin build src -strict-style -vet -debug -build-mode:dll -out:%OUT_DIR%/game.dll -pdb-name:%GAME_PDBS_DIR%\game_%PDB_NUMBER%.pdb > nul
-odin build src -debug -build-mode:dll -out:%OUT_DIR%/game.dll -pdb-name:%GAME_PDBS_DIR%\game_%PDB_NUMBER%.pdb > nul
+odin build src -debug -build-mode:dll -out:%OUT_DIR%/game.dll -pdb-name:%GAME_PDBS_DIR%\game_%PDB_NUMBER%.pdb
 IF %ERRORLEVEL% NEQ 0 exit /b 1
 
 :: If game.exe already running: Then only compile game.dll and exit cleanly

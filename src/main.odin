@@ -35,6 +35,7 @@ Game_Memory :: struct {
   im_context: ^im.Context              `hide`,
 
   vertex_buf: ^sdl.GPUBuffer `hide`,
+  index_buf:  ^sdl.GPUBuffer `hide`,
 
   proj_mat:       mat4 `hide`,
   last_ticks:     u64  `hide`,
@@ -94,7 +95,7 @@ game_tick :: proc() -> (quit: bool) {
   }
 
   if swapchain_tex != nil {
-    // MARK: clear render pass
+    // MARK: render pass
     {
       color_target := sdl.GPUColorTargetInfo{
         texture     = swapchain_tex,
@@ -108,8 +109,10 @@ game_tick :: proc() -> (quit: bool) {
 
       sdl.BindGPUGraphicsPipeline(render_pass, g_mem.pipeline)
       sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding{ buffer = g_mem.vertex_buf }), 1)
+      sdl.BindGPUIndexBuffer(render_pass, { buffer = g_mem.index_buf }, ._16BIT)
       sdl.PushGPUVertexUniformData(cmd_buffer, 0, &ubo, size_of(ubo))
-      sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
+      // sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
+      sdl.DrawGPUIndexedPrimitives(render_pass, 6, 1, 0, 0, 0)
     }
 
     imgui_impl_sdlgpu3.NewFrame()
@@ -155,6 +158,7 @@ game_tick :: proc() -> (quit: bool) {
   return
 }
 
+// MARK: init
 @(export)
 game_init :: proc() {
   if g_mem == nil {
@@ -207,29 +211,43 @@ game_init :: proc() {
   }
 
   vertices := []Vertex {
-    { pos = {-.5, -.5, 0}, color = {1, 0, 0} },
-    { pos = {  0, +.5, 0}, color = {0, 1, 0} },
-    { pos = {+.5, -.5, 0}, color = {0, 0, 1} },
+    { pos = {-.5,  .5, 0}, color = {1, 0, 0} }, // tl
+    { pos = { .5,  .5, 0}, color = {0, 1, 0} }, // tr
+    { pos = {-.5, -.5, 0}, color = {0, 0, 1} }, // bl
+    { pos = { .5, -.5, 0}, color = {1, 1, 0} }, // br
   }
-  vertices_bytes := len(vertices) * size_of(Vertex)
+  vertices_bytes := len(vertices) * size_of(vertices[0])
 
   g_mem.vertex_buf = sdl.CreateGPUBuffer(g_mem.device, {
     usage = {.VERTEX},
-    size  = cast(u32) vertices_bytes
+    size  = u32(vertices_bytes)
   })
   assert(g_mem.vertex_buf != nil)
+
+  indices := []u16 {
+    0, 1, 2,
+    2, 1, 3,
+  }
+  indices_bytes := len(indices) * size_of(indices[0])
+
+  g_mem.index_buf = sdl.CreateGPUBuffer(g_mem.device, {
+    usage = {.INDEX},
+    size  = u32(indices_bytes)
+  })
+  assert(g_mem.index_buf != nil)
 
   // upload vertex data to vertex buffer
   // * create transfer buffer (cpu -> gpu)
   transfer_buf := sdl.CreateGPUTransferBuffer(g_mem.device, {
     usage = .UPLOAD,
-    size  = cast(u32) vertices_bytes // +indices
+    size  = u32(vertices_bytes + indices_bytes) // +indices
   })
   assert(transfer_buf != nil)
 
   // * map transfer buffer memory & copy from cpu
-  transfer_mem := sdl.MapGPUTransferBuffer(g_mem.device, transfer_buf, false)
-  mem.copy(transfer_mem, rawptr(raw_data(vertices)), vertices_bytes)
+  transfer_mem := transmute([^]byte) sdl.MapGPUTransferBuffer(g_mem.device, transfer_buf, false)
+  mem.copy(transfer_mem, raw_data(vertices), vertices_bytes)
+  mem.copy(transfer_mem[vertices_bytes:], raw_data(indices), indices_bytes)
   sdl.UnmapGPUTransferBuffer(g_mem.device, transfer_buf)
 
   // * begin copy pass
@@ -240,11 +258,19 @@ game_init :: proc() {
     copy_pass := sdl.BeginGPUCopyPass(copy_cmd_buf)
     defer sdl.EndGPUCopyPass(copy_pass)
 
-    // * invoke upload command
+    // upload vertices
     sdl.UploadToGPUBuffer(
       copy_pass,
       { transfer_buffer = transfer_buf },
-      { buffer = g_mem.vertex_buf, size = cast(u32) vertices_bytes },
+      { buffer = g_mem.vertex_buf, size = u32(vertices_bytes) },
+      false,
+    )
+
+    // upload indices
+    sdl.UploadToGPUBuffer(
+      copy_pass,
+      { transfer_buffer = transfer_buf, offset = u32(vertices_bytes) },
+      { buffer = g_mem.index_buf, size = u32(indices_bytes) },
       false,
     )
 
@@ -258,13 +284,13 @@ game_init :: proc() {
       // position attr
       location = 0,
       format   = .FLOAT3,
-      offset   = cast(u32) offset_of(Vertex, pos),
+      offset   = u32(offset_of(Vertex, pos)),
     },
     {
       // color attr
       location = 1,
       format   = .FLOAT3,
-      offset   = cast(u32) offset_of(Vertex, color),
+      offset   = u32(offset_of(Vertex, color)),
     }
   }
 
@@ -278,7 +304,7 @@ game_init :: proc() {
         slot = 0,
         pitch = size_of(Vertex),
       }),
-      num_vertex_attributes = cast(u32) len(vertex_attrs),
+      num_vertex_attributes = u32(len(vertex_attrs)),
       vertex_attributes     = raw_data(vertex_attrs)
     },
     target_info = {

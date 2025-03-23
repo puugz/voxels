@@ -38,41 +38,41 @@ WORLD_FORWARD :: vec3{0, 0, -1}
 SDL_MOUSEKEY_COUNT :: 6
 
 Game_Memory :: struct {
-  window:     ^sdl.Window              `hide`,
-  device:     ^sdl.GPUDevice           `hide`,
-  pipeline:   ^sdl.GPUGraphicsPipeline `hide`,
-  im_context: ^im.Context              `hide`,
+  window:     ^sdl.Window,
+  device:     ^sdl.GPUDevice,
+  pipeline:   ^sdl.GPUGraphicsPipeline,
+  im_context: ^im.Context,
 
-  vertex_buf: ^sdl.GPUBuffer  `hide`,
-  index_buf:  ^sdl.GPUBuffer  `hide`,
-  texture:    ^sdl.GPUTexture `hide`,
-  sampler:    ^sdl.GPUSampler `hide`,
+  vertex_buf: ^sdl.GPUBuffer,
+  index_buf:  ^sdl.GPUBuffer,
+  texture:    ^sdl.GPUTexture,
+  sampler:    ^sdl.GPUSampler,
 
-  proj_mat:       mat4 `hide`,
-  last_ticks:     u64  `hide`,
-  rotation:       f32  `min_max:"0,360" angle`,
-  rotation_delta: f32  `min_max:"0,360" angle`,  // in radians
-  fov:            f32  `min_max:"30,110" angle`, // in radians
+  proj_mat:       mat4,
+  last_ticks:     u64,
+  rotation:       f32 `min_max:"0,360" angle`,
+  rotation_delta: f32 `min_max:"0,360" angle`,  // in radians
+  fov:            f32 `min_max:"30,110" angle`, // in radians
 
   clear_color:     RGBA `spacing no_alpha`,
   show_imgui_demo: bool,
 
   camera:       Camera,
-  mouse_locked: bool `hide`,
-  delta_time:   f32  `hide`,
+  mouse_locked: bool,
+  delta_time:   f32,
 
   // input state
-  key_down:   #sparse[sdl.Scancode]bool `hide`,
-  mouse_down: [SDL_MOUSEKEY_COUNT]bool `hide`,
+  key_down:   #sparse[sdl.Scancode]bool,
+  mouse_down: [SDL_MOUSEKEY_COUNT]bool,
   mouse_pos:  vec2 `spacing read_only`,
 
   using frame: struct {
-    key_pressed:    #sparse[sdl.Scancode]bool `hide`,
-    key_released:   #sparse[sdl.Scancode]bool `hide`,
-    mouse_pressed:  [SDL_MOUSEKEY_COUNT]bool `hide`,
-    mouse_released: [SDL_MOUSEKEY_COUNT]bool `hide`,
-    scroll_delta:   f32  `read_only`,
-    mouse_delta:    vec2 `read_only`,
+    key_pressed:    #sparse[sdl.Scancode]bool,
+    key_released:   #sparse[sdl.Scancode]bool,
+    mouse_pressed:  [SDL_MOUSEKEY_COUNT]bool,
+    mouse_released: [SDL_MOUSEKEY_COUNT]bool,
+    scroll_delta:   f32,
+    mouse_delta:    vec2,
   },
 }
 
@@ -495,6 +495,8 @@ game_force_restart :: proc() -> bool {
 ui_game_memory :: #force_inline proc(title: cstring) {
   if im.Begin(title) {
     for field in reflect.struct_fields_zipped(Game_Memory) {
+      if field.tag == "" do continue
+
       hide := strings.contains(cast(string)field.tag, "hide")
       if hide do continue
 

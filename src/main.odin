@@ -55,7 +55,8 @@ Game_Memory :: struct {
   fov:            f32 `min_max:"30,110" angle`, // in radians
 
   clear_color:     RGBA `spacing no_alpha`,
-  show_imgui_demo: bool,
+  show_imgui_demo: bool `show`,
+  show_ui_overlay: bool `show`,
 
   camera:       Camera,
   mouse_locked: bool,
@@ -64,7 +65,7 @@ Game_Memory :: struct {
   // input state
   key_down:   #sparse[sdl.Scancode]bool,
   mouse_down: [SDL_MOUSEKEY_COUNT]bool,
-  mouse_pos:  vec2 `spacing read_only`,
+  mouse_pos:  vec2,
 
   using frame: struct {
     key_pressed:    #sparse[sdl.Scancode]bool,
@@ -78,9 +79,10 @@ Game_Memory :: struct {
 
 game_memory_default :: #force_inline proc() -> Game_Memory {
   return {
-    rotation_delta = linalg.to_radians(f32(90)),
-    fov            = linalg.to_radians(f32(70)),
-    clear_color    = rgba(0x101010FF),
+    rotation_delta  = linalg.to_radians(f32(90)),
+    fov             = linalg.to_radians(f32(70)),
+    clear_color     = rgba(0x101010FF),
+    show_ui_overlay = true,
   }
 }
 
@@ -163,11 +165,9 @@ game_tick :: proc() -> (quit: bool) {
     imgui_impl_sdl3.NewFrame()
     im.NewFrame()
 
-    if g_mem.show_imgui_demo {
-      im.ShowDemoWindow()
-    }
-
     ui_game_memory("Game Memory")
+    if g_mem.show_ui_overlay do ui_overlay(&g_mem.show_ui_overlay)
+    if g_mem.show_imgui_demo do im.ShowDemoWindow(&g_mem.show_imgui_demo)
 
     im.Render()
     draw_data := im.GetDrawData()
@@ -491,7 +491,69 @@ game_force_restart :: proc() -> bool {
   return key_pressed(.F6)
 }
 
-// // @MARK: ui_render
+// @MARK: ui_render
+ui_overlay :: proc(p_show: ^bool) {
+  CENTER       :: -2
+  TOP_LEFT     ::  0
+  TOP_RIGHT    ::  1
+  BOTTOM_LEFT  ::  2
+  BOTTOM_RIGHT ::  3
+
+  @(static)
+  location := TOP_LEFT
+  
+  io := im.GetIO()
+  window_flags := im.WindowFlags{
+    // .NoDecoration,
+    .AlwaysAutoResize,
+    .NoSavedSettings,
+    .NoFocusOnAppearing,
+    // .NoNav,
+    .NoTitleBar,
+  }
+
+  viewport := im.GetMainViewport()
+  if location >= 0 {
+    PAD :: 10
+    window_pos, window_pos_pivot: vec2
+
+    work_pos  := viewport.WorkPos // Use work area to avoid menu-bar/task-bar, if any!
+    work_size := viewport.WorkSize
+
+    window_pos.x       = (location & 1 != 0) ? (work_pos.x + work_size.x - PAD) : (work_pos.x + PAD)
+    window_pos.y       = (location & 2 != 0) ? (work_pos.y + work_size.y - PAD) : (work_pos.y + PAD)
+    window_pos_pivot.x = (location & 1 != 0) ? 1 : 0
+    window_pos_pivot.y = (location & 2 != 0) ? 1 : 0
+    im.SetNextWindowPos(window_pos, .Always, window_pos_pivot)
+    window_flags += {.NoMove}
+  } else if location == -2 {
+    // Center window
+    main_viewport_center := vec2{
+      viewport.Pos.x + viewport.Size.x * 0.5,
+      viewport.Pos.y + viewport.Size.y * 0.5
+    }
+
+    im.SetNextWindowPos(main_viewport_center, .Always, {0.5, 0.5})
+    window_flags += {.NoMove}
+  }
+
+  im.SetNextWindowBgAlpha(0.35) // Transparent background
+
+  if im.Begin("Overlay", nil, window_flags) {
+    im.Text("%.3f ms/frame (%.1f FPS)", 1000.0 / io.Framerate, io.Framerate)
+    if im.BeginPopupContextWindow() {
+      if im.MenuItem("Center",       selected = (location == CENTER))       do location = CENTER
+      if im.MenuItem("Top-Left",     selected = (location == TOP_LEFT))     do location = TOP_LEFT
+      if im.MenuItem("Top-Right",    selected = (location == TOP_RIGHT))    do location = TOP_RIGHT
+      if im.MenuItem("Bottom-Left",  selected = (location == BOTTOM_LEFT))  do location = BOTTOM_LEFT
+      if im.MenuItem("Bottom-Right", selected = (location == BOTTOM_RIGHT)) do location = BOTTOM_RIGHT
+      if p_show != nil && im.MenuItem("Close") do p_show^ = false
+      im.EndPopup()
+    }
+  }
+  im.End()
+}
+
 ui_game_memory :: #force_inline proc(title: cstring) {
   if im.Begin(title) {
     for field in reflect.struct_fields_zipped(Game_Memory) {

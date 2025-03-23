@@ -30,6 +30,9 @@ RGB  :: vec3
 RGBA :: vec4
 mat4 :: matrix[4,4]f32
 
+SDL_SCANCODE_COUNT :: 512
+SDL_MOUSEKEY_COUNT :: 6
+
 Game_Memory :: struct {
   window:     ^sdl.Window              `hide`,
   device:     ^sdl.GPUDevice           `hide`,
@@ -49,6 +52,20 @@ Game_Memory :: struct {
 
   clear_color:     RGBA `spacing no_alpha`,
   show_imgui_demo: bool,
+
+  // input state
+  key_down:   [SDL_SCANCODE_COUNT]bool `hide`,
+  mouse_down: [SDL_MOUSEKEY_COUNT]bool `hide`,
+  mouse_pos:  vec2 `spacing read_only`,
+
+  using frame: struct {
+    key_pressed:    [SDL_SCANCODE_COUNT]bool `hide`,
+    key_released:   [SDL_SCANCODE_COUNT]bool `hide`,
+    mouse_pressed:  [SDL_MOUSEKEY_COUNT]bool `hide`,
+    mouse_released: [SDL_MOUSEKEY_COUNT]bool `hide`,
+    scroll_delta:   f32  `read_only`,
+    mouse_delta:    vec2 `read_only`,
+  },
 }
 
 game_memory_default :: #force_inline proc() -> Game_Memory {
@@ -69,18 +86,18 @@ g_mem: ^Game_Memory
 // MARK: tick
 @(export)
 game_tick :: proc() -> (quit: bool) {
+  g_mem.frame = {}
+
   ticks           := sdl.GetTicks()
   delta_time      := f32(ticks - g_mem.last_ticks) / sdl.MS_PER_SECOND
   g_mem.last_ticks = ticks
 
   event: sdl.Event
   for sdl.PollEvent(&event) {
-    imgui_impl_sdl3.ProcessEvent(&event)
+    if event.type == .QUIT do return true
 
-    #partial switch event.type {
-      case .QUIT:                                         return true
-      case .KEY_DOWN: if event.key.scancode == .ESCAPE do return true
-    }
+    imgui_impl_sdl3.ProcessEvent(&event)
+    process_input_events(&event)
   }
 
   // update
@@ -126,14 +143,11 @@ game_tick :: proc() -> (quit: bool) {
     imgui_impl_sdl3.NewFrame()
     im.NewFrame()
 
-    im.ShowMetricsWindow()
-
     if g_mem.show_imgui_demo {
       im.ShowDemoWindow()
     }
 
     ui_game_memory("Game Memory")
-    // ui_render()
 
     im.Render()
     draw_data := im.GetDrawData()
@@ -210,8 +224,8 @@ game_init :: proc() {
     })
   }
 
-  vert_shader := create_shader(g_mem.device, VERT_SHADER_CODE, .VERTEX, 1, 0)
-  frag_shader := create_shader(g_mem.device, FRAG_SHADER_CODE, .FRAGMENT, 0, 1)
+  vert_shader := create_shader(g_mem.device, VERT_SHADER_CODE, .VERTEX,   num_uniform_buffers = 1, num_samplers = 0)
+  frag_shader := create_shader(g_mem.device, FRAG_SHADER_CODE, .FRAGMENT, num_uniform_buffers = 0, num_samplers = 1)
 
   TEXTURE_BYTES :: #load("../res/texture.jpg")
 
@@ -231,11 +245,11 @@ game_init :: proc() {
 
   tex_transfer_buf := sdl.CreateGPUTransferBuffer(g_mem.device, {
     usage = .UPLOAD,
-    size  = u32(pixels_bytes)
+    size  = u32(pixels_bytes),
   })
   assert(tex_transfer_buf != nil)
 
-  tex_transfer_mem := transmute([^]byte)sdl.MapGPUTransferBuffer(g_mem.device, tex_transfer_buf, false)
+  tex_transfer_mem := cast([^]byte)sdl.MapGPUTransferBuffer(g_mem.device, tex_transfer_buf, false)
   mem.copy(tex_transfer_mem, pixels, int(pixels_bytes))
 
   stbi.image_free(pixels)
@@ -257,7 +271,7 @@ game_init :: proc() {
 
   g_mem.vertex_buf = sdl.CreateGPUBuffer(g_mem.device, {
     usage = {.VERTEX},
-    size  = u32(vertices_bytes)
+    size  = u32(vertices_bytes),
   })
   assert(g_mem.vertex_buf != nil)
 
@@ -269,7 +283,7 @@ game_init :: proc() {
 
   g_mem.index_buf = sdl.CreateGPUBuffer(g_mem.device, {
     usage = {.INDEX},
-    size  = u32(indices_bytes)
+    size  = u32(indices_bytes),
   })
   assert(g_mem.index_buf != nil)
 
@@ -277,12 +291,12 @@ game_init :: proc() {
   // * create transfer buffer (cpu -> gpu)
   transfer_buf := sdl.CreateGPUTransferBuffer(g_mem.device, {
     usage = .UPLOAD,
-    size  = u32(vertices_bytes + indices_bytes) // +indices
+    size  = u32(vertices_bytes + indices_bytes), // +indices
   })
   assert(transfer_buf != nil)
 
   // * map transfer buffer memory & copy from cpu
-  transfer_mem := transmute([^]byte) sdl.MapGPUTransferBuffer(g_mem.device, transfer_buf, false)
+  transfer_mem := cast([^]byte) sdl.MapGPUTransferBuffer(g_mem.device, transfer_buf, false)
   mem.copy(transfer_mem, raw_data(vertices), vertices_bytes)
   mem.copy(transfer_mem[vertices_bytes:], raw_data(indices), indices_bytes)
   sdl.UnmapGPUTransferBuffer(g_mem.device, transfer_buf)
@@ -315,7 +329,7 @@ game_init :: proc() {
       copy_pass,
       { transfer_buffer = tex_transfer_buf },
       { texture = g_mem.texture, w = u32(image_size.x), h = u32(image_size.y), d = 1 },
-      false
+      false,
     )
 
     // * end copy pass and submit
@@ -358,7 +372,7 @@ game_init :: proc() {
         pitch = size_of(Vertex),
       }),
       num_vertex_attributes = u32(len(vertex_attrs)),
-      vertex_attributes     = raw_data(vertex_attrs)
+      vertex_attributes     = raw_data(vertex_attrs),
     },
     target_info = {
       num_color_targets         = 1,
@@ -370,11 +384,6 @@ game_init :: proc() {
 
   sdl.ReleaseGPUShader(g_mem.device, vert_shader)
   sdl.ReleaseGPUShader(g_mem.device, frag_shader)
-
-  // window_size: [2]i32
-  // assert(sdl.GetWindowSize(g_mem.window, &window_size.x, &window_size.y))
-
-  // aspect_ratio := f32(window_size.x) / f32(window_size.y)
 
   // MARK:init imgui
   im.CHECKVERSION()
@@ -423,8 +432,6 @@ game_shutdown :: proc() {
 game_shutdown_window :: proc() {
   defer sdl.Quit()
   defer sdl.DestroyWindow(g_mem.window)
-  // defer sdl.GL_DestroyContext(g_mem.gl_context)
-  // defer rl.Close()
   defer im.DestroyContext()
   defer imgui_impl_sdl3.Shutdown()
   defer imgui_impl_sdlgpu3.Shutdown()
@@ -452,38 +459,13 @@ game_hot_reload :: proc(mem: rawptr) {
 
 @(export)
 game_force_reload :: proc() -> bool {
-  return im.IsKeyPressed(.F5, false)
-  // return false
+  return key_pressed(.F5)
 }
 
 @(export)
 game_force_restart :: proc() -> bool {
-  return im.IsKeyPressed(.F6, false)
-  // return false
+  return key_pressed(.F6)
 }
-
-// World :: struct {
-//   name:        string,
-//   last_played: string,
-//   created_at:  string,
-//   size:        string,
-//   favorite:    bool,
-// }
-
-// @(rodata)
-// WORLDS : []World =
-// {
-//   { "1121",          "Today, 09:44",     "Today, 13:05",     "121 MB", true  },
-//   { "aaa",           "2022/10/16 18:01", "2022/10/16 18:01", "0 B",    true  },
-//   { "aaaaaaaaaaaa",  "2022/10/17 22:45", "2022/10/17 22:43", "372 MB", true  },
-//   { "ccccc",         "2022/11/01 17:40", "2022/10/31 21:38", "220 MB", true  },
-//   { "33333",         "Today, 10:12",     "Today, 10:12",     "0 B",    false },
-//   { "q",             "2022/10/14 03:52", "2022/10/14 03:52", "0 B",    false },
-//   { "aaaaaaaaaaaaa", "2022/10/14 03:52", "2022/10/14 02:58", "1 GB",   false },
-//   { "d",             "2022/10/16 18:06", "2022/10/16 18:06", "1 GB",   false },
-//   { "da",            "2022/10/16 02:31", "2022/10/16 02:31", "0 B",    false },
-//   { "dada",          "2022/10/16 02:35", "2022/10/16 02:35", "0 B",    false },
-// }
 
 // // @MARK: ui_render
 ui_game_memory :: #force_inline proc(title: cstring) {
@@ -492,14 +474,14 @@ ui_game_memory :: #force_inline proc(title: cstring) {
       hide := strings.contains(cast(string)field.tag, "hide")
       if hide do continue
 
-      disabled := strings.contains(cast(string)field.tag, "disabled")
-      spacing  := strings.contains(cast(string)field.tag, "spacing")
+      read_only := strings.contains(cast(string)field.tag, "read_only")
+      spacing   := strings.contains(cast(string)field.tag, "spacing")
 
       field_value := reflect.struct_field_value(&g_mem, field)
       field_ptr   := rawptr(uintptr(g_mem) + field.offset)
       field_name  := __(field.name)
 
-      im.BeginDisabled(disabled); defer im.EndDisabled()
+      im.BeginDisabled(read_only); defer im.EndDisabled()
       if spacing do im.NewLine()
 
       #partial switch type in field.type.variant {
@@ -553,6 +535,19 @@ ui_game_memory :: #force_inline proc(title: cstring) {
 
             ptr := cast(^[4]f32) field_ptr
             im.ColorEdit4(field_name, ptr, flags)
+          } else if _, ok = field_value.(vec2); ok {
+            ptr := cast(^vec2) field_ptr
+
+            w := im.CalcItemWidth() / 2 - 10
+            im.Text(field_name)
+
+            im.SetNextItemWidth(w)
+            im.DragFloat("x", &ptr.x, format = "%.1f")
+
+            im.SameLine()
+
+            im.SetNextItemWidth(w)
+            im.DragFloat("y", &ptr.y, format = "%.1f")
           }
         // case reflect.Type_Info_Matrix:
         //   if _, ok := field_value.(mat4); ok {
@@ -572,162 +567,12 @@ ui_game_memory :: #force_inline proc(title: cstring) {
         //       im.NewLine()
         //     }
         //   }
-        case: im.Text("%s", field_name)
+        // case: im.Text("%s", field_name)
       }
     }
   }
   im.End()
 }
-
-// ui_render :: proc() {
-//   im.ShowDemoWindow()
-//   im.ShowStyleEditor(nil)
-
-//   display_size := im.GetIO().DisplaySize
-
-//   window_size := im.Vec2{display_size.x * 0.63, display_size.y * 0.66}
-//   im.SetNextWindowSize(window_size, .Always)
-
-//   // window_pos := im.Vec2{(display_size.x - window_size.x) * 0.5, (display_size.y - window_size.y) * 0.5}
-//   // im.SetNextWindowPos(window_pos, .Always)
-
-//   @(static)
-//   buf: [256]byte
-
-//   // im.PushStyleVarImVec2(.WindowTitleAlign, {0.5, 0.5}); defer im.PopStyleVar()
-
-//   // 30px high window title
-//   // 10px padding
-//   // 30px search box
-//   // 10px padding
-//   // world table // 25px table header
-
-//   @(static)
-//   selected_item := -1
-//   @(static)
-//   last_click_time: time.Time
-
-//   if im.Begin("Controls", nil, { .NoCollapse, .NoTitleBar }) {
-//     content_size := im.GetContentRegionAvail()
-//     any_selected := selected_item != -1
-
-//     if im.Button("Create New", {content_size.x, 40}) {
-//       if im.BeginPopupModal("Create New World", nil, {}) {
-//         im.Text("balls")
-//         im.EndPopup()
-//       }
-//     }
-
-//     im.BeginDisabled(!any_selected)
-//     if im.Button("Load World",   {content_size.x, 40}) {}
-//     if im.Button("Rename World", {content_size.x, 40}) {}
-//     if im.Button("Delete World", {content_size.x, 40}) {}
-//     im.EndDisabled()
-
-//     if im.Button("Back", {content_size.x, 40}) {
-//       selected_item = -1
-//     }
-
-//     im.End()
-//   }
-
-//   if im.Begin("Select World", nil, { .NoCollapse, .NoMove, .NoResize, .NoScrollbar, .NoTitleBar }) {
-//     defer im.End()
-
-//     // window_size := im.GetWindowSize()
-//     content_size := im.GetContentRegionAvail()
-
-//     im.SetNextItemWidth(content_size.x)
-//     im.InputTextWithHint("##World_Search", "Search...", cstring(raw_data(buf[:])), len(buf))
-//     // im.Separator()
-
-//     // im.SetNextItemWidth(content_size.x)
-//     // im.SetNextWindowSize({content_size.x, content_size.y * 0.9}, .Always)
-//     // im.SetNextWindowSize({600, 200}, .Always)
-
-//     if im.BeginChild("List", {}, {.Borders}) {
-//       defer im.EndChild()
-
-//       content_size = im.GetContentRegionAvail()
-
-//       for world, idx in WORLDS {
-//         im.PushIDInt(cast(i32) idx);    defer im.PopID()
-//         if idx > 0 && idx < len(WORLDS) do im.Separator()
-
-//         pos := im.GetItemRectMin()
-//         size := im.Vec2{}
-//         // size := im.GetItemRectSize()
-//         size.x = content_size.x
-//         size.y = 50
-
-//         // double-click
-//         is_selected := selected_item == idx
-//         if im.Selectable("##test", is_selected, {.AllowDoubleClick}, size) {
-//           now := time.now()
-//           if is_selected && time.diff(last_click_time, now) > 250 * time.Millisecond {
-//             fmt.println("DOUBLE CLICK")
-//           }
-//           selected_item = idx
-//           last_click_time = now
-//         }
-
-//         draw_list := im.GetWindowDrawList()
-//         // im.DrawList_AddRect(draw_list, pos, pos + size, im.GetColorU32(.Border), 5, {}, 2)
-
-//         {
-//           cy := im.GetCursorPosY(); defer im.SetCursorPosY(cy)
-//           cx := im.GetCursorPosX(); defer im.SetCursorPosY(cx)
-//           im.SetCursorPosY(cy - 43)
-//           im.SetCursorPosX(cx + 10)
-
-//           im.TextColored({1,1,1,1}, temp_cstr(world.name))
-//           im.SetCursorPosX(cx + 10)
-//           im.TextColored({0.5, 0.51, 0.56, 1}, temp_cstr(world.last_played))
-//         }
-//       }
-//     }
-
-//     // flags := im.TableFlags_Borders | im.TableFlags_RowBg |
-//     //          im.TableFlags_Sortable | im.TableFlags_ScrollY
-
-//     // if im.BeginTable("##world_table", 4, flags) {
-//     //   im.TableSetupColumn("Name", {})        // .45
-//     //   im.TableSetupColumn("Last played", {}) // .26
-//     //   im.TableSetupColumn("Created at", {})  // .19
-//     //   im.TableSetupColumn("Size", {})        // .08
-//     //   im.TableSetupScrollFreeze(0, 1)
-//     //   im.TableHeadersRow()
-      
-//     //   for &world, idx in WORLDS {
-//     //     im.TableNextRow()
-        
-//     //     im.TableSetColumnIndex(0)
-//     //     {
-//     //       im.PushIDInt(cast(i32) idx); defer im.PopID()
-//     //       im.PushStyleColor(.FrameBg, 0x00000000); defer im.PopStyleColor()
-//     //       im.Checkbox("##", &world.favorite); im.SameLine()
-//     //       im.Text("%s", world.name) // Unicode star
-//     //     }
-        
-//     //     im.TableSetColumnIndex(1)
-//     //     im.Text("%s", world.last_played)
-        
-//     //     im.TableSetColumnIndex(2)
-//     //     im.Text("%s", world.created_at)
-        
-//     //     im.TableSetColumnIndex(3)
-//     //     im.Text("%s", world.size)
-//     //   }
-//     //   im.EndTable()
-//     // }
-  
-//     // im.Spacing()
-//     // im.Separator()
-//     // im.Spacing()
-
-//     // im.SetCursorPosX((window_size.x - (5 * 110)) * 0.5)
-//   }
-// }
 
 // @MARK: util
 __ :: proc(str: string) -> cstring {

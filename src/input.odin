@@ -32,8 +32,8 @@ process_input_events :: proc(event: ^sdl.Event) {
       g_mem.scroll_delta = event.wheel.mouse_y
 
     case .MOUSE_MOTION:
-      g_mem.mouse_delta = { event.motion.xrel, event.motion.yrel }
-      g_mem.mouse_pos   = { event.motion.x,    event.motion.y }
+      g_mem.mouse_delta += { event.motion.xrel, event.motion.yrel }
+      g_mem.mouse_pos    = { event.motion.x,    event.motion.y }
   }
 }
 

@@ -17,9 +17,10 @@ import im "imgui"
 import "imgui/imgui_impl_sdl3"
 import "imgui/imgui_impl_sdlgpu3"
 
+// @TODO: https://www.gafferongames.com/post/fix_your_timestep/
+
 WINDOW_WIDTH  :: 1024
 WINDOW_HEIGHT :: 768
-ASPECT_RATIO  :: f32(WINDOW_WIDTH) / f32(WINDOW_HEIGHT)
 
 DISABLE_DOCKING :: #config(DISABLE_DOCKING, false)
 
@@ -30,7 +31,10 @@ RGB  :: vec3
 RGBA :: vec4
 mat4 :: matrix[4,4]f32
 
-SDL_SCANCODE_COUNT :: 512
+WORLD_RIGHT   :: vec3{1, 0,  0}
+WORLD_UP      :: vec3{0, 1,  0}
+WORLD_FORWARD :: vec3{0, 0, -1}
+
 SDL_MOUSEKEY_COUNT :: 6
 
 Game_Memory :: struct {
@@ -53,14 +57,18 @@ Game_Memory :: struct {
   clear_color:     RGBA `spacing no_alpha`,
   show_imgui_demo: bool,
 
+  camera:       Camera,
+  mouse_locked: bool `hide`,
+  delta_time:   f32  `hide`,
+
   // input state
-  key_down:   [SDL_SCANCODE_COUNT]bool `hide`,
+  key_down:   #sparse[sdl.Scancode]bool `hide`,
   mouse_down: [SDL_MOUSEKEY_COUNT]bool `hide`,
   mouse_pos:  vec2 `spacing read_only`,
 
   using frame: struct {
-    key_pressed:    [SDL_SCANCODE_COUNT]bool `hide`,
-    key_released:   [SDL_SCANCODE_COUNT]bool `hide`,
+    key_pressed:    #sparse[sdl.Scancode]bool `hide`,
+    key_released:   #sparse[sdl.Scancode]bool `hide`,
     mouse_pressed:  [SDL_MOUSEKEY_COUNT]bool `hide`,
     mouse_released: [SDL_MOUSEKEY_COUNT]bool `hide`,
     scroll_delta:   f32  `read_only`,
@@ -89,20 +97,31 @@ game_tick :: proc() -> (quit: bool) {
   g_mem.frame = {}
 
   ticks           := sdl.GetTicks()
-  delta_time      := f32(ticks - g_mem.last_ticks) / sdl.MS_PER_SECOND
+  g_mem.delta_time = f32(ticks - g_mem.last_ticks) / sdl.MS_PER_SECOND
   g_mem.last_ticks = ticks
 
   event: sdl.Event
   for sdl.PollEvent(&event) {
     if event.type == .QUIT do return true
+    if event.type == .KEY_DOWN && event.key.scancode == .ESCAPE {
+      g_mem.mouse_locked = !g_mem.mouse_locked
+      _ = sdl.SetWindowRelativeMouseMode(g_mem.window, g_mem.mouse_locked)
+    }
 
-    imgui_impl_sdl3.ProcessEvent(&event)
     process_input_events(&event)
+    if !g_mem.mouse_locked do imgui_impl_sdl3.ProcessEvent(&event)
   }
 
+  window_size: [2]i32
+  sdl.GetWindowSize(g_mem.window, &window_size.x, &window_size.y)
+
+  aspect_ratio := f32(window_size.x) / f32(window_size.y)
+
   // update
-  g_mem.rotation = wrap_radians(g_mem.rotation + g_mem.rotation_delta * delta_time)
-  g_mem.proj_mat = linalg.matrix4_perspective(g_mem.fov, ASPECT_RATIO, 0.001, 1000)
+  g_mem.rotation = wrap_radians(g_mem.rotation + g_mem.rotation_delta * g_mem.delta_time)
+  g_mem.proj_mat = linalg.matrix4_perspective(g_mem.fov, aspect_ratio, 0.001, 1000)
+
+  update_camera(&g_mem.camera)
 
   // render
   cmd_buffer := sdl.AcquireGPUCommandBuffer(g_mem.device)
@@ -110,9 +129,10 @@ game_tick :: proc() -> (quit: bool) {
 
   assert(sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buffer, g_mem.window, &swapchain_tex, nil, nil))
 
-  model_mat := linalg.matrix4_translate_f32({0, 0, -5}) * linalg.matrix4_rotate_f32(g_mem.rotation, {0, 1, 0})
+  view_mat  := linalg.matrix4_look_at_f32(g_mem.camera.position, g_mem.camera.position + g_mem.camera.direction, WORLD_UP)
+  model_mat := linalg.matrix4_translate_f32({0, 0, 0}) * linalg.matrix4_rotate_f32(g_mem.rotation, WORLD_UP)
   ubo := UBO{
-    mvp = g_mem.proj_mat * model_mat,
+    mvp = g_mem.proj_mat * view_mat * model_mat,
   }
 
   if swapchain_tex != nil {
@@ -421,6 +441,10 @@ game_init :: proc() {
     ColorTargetFormat = sdl.GetGPUSwapchainTextureFormat(g_mem.device, g_mem.window),
     MSAASamples       = ._1,
   }))
+
+  // MARK: init camera
+  g_mem.mouse_locked = true
+  init_camera(&g_mem.camera)
 }
 
 @(export)

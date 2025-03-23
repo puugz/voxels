@@ -10,6 +10,8 @@ import "core:reflect"
 import "core:math"
 import "core:math/linalg"
 
+import stbi "vendor:stb/image"
+
 import sdl "vendor:sdl3"
 import im "imgui"
 import "imgui/imgui_impl_sdl3"
@@ -34,8 +36,10 @@ Game_Memory :: struct {
   pipeline:   ^sdl.GPUGraphicsPipeline `hide`,
   im_context: ^im.Context              `hide`,
 
-  vertex_buf: ^sdl.GPUBuffer `hide`,
-  index_buf:  ^sdl.GPUBuffer `hide`,
+  vertex_buf: ^sdl.GPUBuffer  `hide`,
+  index_buf:  ^sdl.GPUBuffer  `hide`,
+  texture:    ^sdl.GPUTexture `hide`,
+  sampler:    ^sdl.GPUSampler `hide`,
 
   proj_mat:       mat4 `hide`,
   last_ticks:     u64  `hide`,
@@ -111,7 +115,10 @@ game_tick :: proc() -> (quit: bool) {
       sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding{ buffer = g_mem.vertex_buf }), 1)
       sdl.BindGPUIndexBuffer(render_pass, { buffer = g_mem.index_buf }, ._16BIT)
       sdl.PushGPUVertexUniformData(cmd_buffer, 0, &ubo, size_of(ubo))
-      // sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
+      sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding{
+        texture = g_mem.texture,
+        sampler = g_mem.sampler,
+      }), 1)
       sdl.DrawGPUIndexedPrimitives(render_pass, 6, 1, 0, 0, 0)
     }
 
@@ -190,6 +197,7 @@ game_init :: proc() {
     code:                []u8,
     stage:               sdl.GPUShaderStage,
     num_uniform_buffers: u32,
+    num_samplers:        u32,
   ) -> ^sdl.GPUShader {
     return sdl.CreateGPUShader(device, {
       code_size           = len(code),
@@ -198,23 +206,52 @@ game_init :: proc() {
       format              = {.SPIRV},
       stage               = stage,
       num_uniform_buffers = num_uniform_buffers,
+      num_samplers        = num_samplers,
     })
   }
 
-  vert_shader := create_shader(g_mem.device, VERT_SHADER_CODE, .VERTEX, 1)
-  frag_shader := create_shader(g_mem.device, FRAG_SHADER_CODE, .FRAGMENT, 0)
+  vert_shader := create_shader(g_mem.device, VERT_SHADER_CODE, .VERTEX, 1, 0)
+  frag_shader := create_shader(g_mem.device, FRAG_SHADER_CODE, .FRAGMENT, 0, 1)
+
+  TEXTURE_BYTES :: #load("../res/texture.jpg")
+
+  image_size: [2]i32
+  pixels := stbi.load_from_memory(raw_data(TEXTURE_BYTES), cast(i32) len(TEXTURE_BYTES), &image_size.x, &image_size.y, nil, 4)
+  pixels_bytes := image_size.x * image_size.y * 4
+  assert(pixels != nil)
+
+  g_mem.texture = sdl.CreateGPUTexture(g_mem.device, {
+    format = .R8G8B8A8_UNORM,
+    usage  = {.SAMPLER},
+    width  = u32(image_size.x),
+    height = u32(image_size.y),
+    layer_count_or_depth = 1,
+    num_levels           = 1,
+  })
+
+  tex_transfer_buf := sdl.CreateGPUTransferBuffer(g_mem.device, {
+    usage = .UPLOAD,
+    size  = u32(pixels_bytes)
+  })
+  assert(tex_transfer_buf != nil)
+
+  tex_transfer_mem := transmute([^]byte)sdl.MapGPUTransferBuffer(g_mem.device, tex_transfer_buf, false)
+  mem.copy(tex_transfer_mem, pixels, int(pixels_bytes))
+
+  stbi.image_free(pixels)
 
   // describe vertex attributes and vertex buffers in the pipeline
   Vertex :: struct {
-    using pos: vec3,
+    pos:   vec3,
     color: RGB,
+    uv:    vec2,
   }
 
   vertices := []Vertex {
-    { pos = {-.5,  .5, 0}, color = {1, 0, 0} }, // tl
-    { pos = { .5,  .5, 0}, color = {0, 1, 0} }, // tr
-    { pos = {-.5, -.5, 0}, color = {0, 0, 1} }, // bl
-    { pos = { .5, -.5, 0}, color = {1, 1, 0} }, // br
+    { pos = {-.5,  .5, 0}, color = {1, 0, 0}, uv = {0, 0} }, // tl
+    { pos = { .5,  .5, 0}, color = {0, 1, 0}, uv = {1, 0} }, // tr
+    { pos = {-.5, -.5, 0}, color = {0, 0, 1}, uv = {0, 1} }, // bl
+    { pos = { .5, -.5, 0}, color = {1, 1, 0}, uv = {1, 1} }, // br
   }
   vertices_bytes := len(vertices) * size_of(vertices[0])
 
@@ -274,10 +311,20 @@ game_init :: proc() {
       false,
     )
 
+    sdl.UploadToGPUTexture(
+      copy_pass,
+      { transfer_buffer = tex_transfer_buf },
+      { texture = g_mem.texture, w = u32(image_size.x), h = u32(image_size.y), d = 1 },
+      false
+    )
+
     // * end copy pass and submit
   }
 
   sdl.ReleaseGPUTransferBuffer(g_mem.device, transfer_buf)
+  sdl.ReleaseGPUTransferBuffer(g_mem.device, tex_transfer_buf)
+
+  g_mem.sampler = sdl.CreateGPUSampler(g_mem.device, {})
 
   vertex_attrs := []sdl.GPUVertexAttribute {
     {
@@ -291,7 +338,13 @@ game_init :: proc() {
       location = 1,
       format   = .FLOAT3,
       offset   = u32(offset_of(Vertex, color)),
-    }
+    },
+    {
+      // uv attr
+      location = 2,
+      format   = .FLOAT2,
+      offset   = u32(offset_of(Vertex, uv)),
+    },
   }
 
   g_mem.pipeline = sdl.CreateGPUGraphicsPipeline(g_mem.device, {

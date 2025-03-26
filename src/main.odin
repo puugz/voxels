@@ -59,6 +59,7 @@ Game_Memory :: struct {
   show_ui_overlay: bool `show`,
 
   camera:       Camera,
+  // world:        World,
   mouse_locked: bool,
   delta_time:   f32,
 
@@ -281,6 +282,8 @@ game_init :: proc() {
     uv:    vec2,
   }
 
+  // vertices, indices := generate_world(&g_mem.world)
+
   vertices := []Vertex {
     { pos = {-.5,  .5, 0}, color = {1, 0, 0}, uv = {0, 0} }, // tl
     { pos = { .5,  .5, 0}, color = {0, 1, 0}, uv = {1, 0} }, // tr
@@ -394,6 +397,10 @@ game_init :: proc() {
       num_vertex_attributes = u32(len(vertex_attrs)),
       vertex_attributes     = raw_data(vertex_attrs),
     },
+    // rasterizer_state = {
+    //   fill_mode = .FILL,
+    //   cull_mode = .BACK,
+    // },
     target_info = {
       num_color_targets         = 1,
       color_target_descriptions = &(sdl.GPUColorTargetDescription{

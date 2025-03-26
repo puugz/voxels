@@ -43,23 +43,25 @@ Game_Memory :: struct {
   pipeline:   ^sdl.GPUGraphicsPipeline,
   im_context: ^im.Context,
 
-  vertex_buf: ^sdl.GPUBuffer,
-  index_buf:  ^sdl.GPUBuffer,
-  texture:    ^sdl.GPUTexture,
-  sampler:    ^sdl.GPUSampler,
+  // vertex_buf: ^sdl.GPUBuffer,
+  // index_buf:  ^sdl.GPUBuffer,
+  // texture:    ^sdl.GPUTexture,
+  // sampler:    ^sdl.GPUSampler,
+
+  depth_texture: ^sdl.GPUTexture,
 
   proj_mat:       mat4,
   last_ticks:     u64,
   rotation:       f32 `min_max:"0,360" angle`,
-  rotation_delta: f32 `min_max:"0,360" angle`,  // in radians
-  fov:            f32 `min_max:"30,110" angle`, // in radians
+  rotation_delta: f32 `min_max:"0,360" angle`,
+  fov:            f32 `min_max:"30,110" angle`,
 
-  clear_color:     RGBA `spacing no_alpha`,
-  show_imgui_demo: bool `show`,
-  show_ui_overlay: bool `show`,
+  clear_color:      RGBA `spacing no_alpha`,
+  show_imgui_demo:  bool `show`,
+  show_ui_overlay:  bool `show`,
 
+  world:        World,
   camera:       Camera,
-  // world:        World,
   mouse_locked: bool,
   delta_time:   f32,
 
@@ -80,7 +82,7 @@ Game_Memory :: struct {
 
 game_memory_default :: #force_inline proc() -> Game_Memory {
   return {
-    rotation_delta  = linalg.to_radians(f32(90)),
+    rotation_delta  = linalg.to_radians(f32(0)),
     fov             = linalg.to_radians(f32(70)),
     clear_color     = rgba(0x101010FF),
     show_ui_overlay = true,
@@ -128,6 +130,7 @@ game_tick :: proc() -> (quit: bool) {
 
   // render
   cmd_buffer := sdl.AcquireGPUCommandBuffer(g_mem.device)
+  assert(cmd_buffer != nil, "Command buffer is null")
   swapchain_tex: ^sdl.GPUTexture
 
   assert(sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buffer, g_mem.window, &swapchain_tex, nil, nil))
@@ -141,25 +144,35 @@ game_tick :: proc() -> (quit: bool) {
   if swapchain_tex != nil {
     // MARK: render pass
     {
-      color_target := sdl.GPUColorTargetInfo{
+      color_target := sdl.GPUColorTargetInfo {
         texture     = swapchain_tex,
         clear_color = cast(sdl.FColor) g_mem.clear_color,
         load_op     = .CLEAR,
         store_op    = .STORE,
       }
 
-      render_pass := sdl.BeginGPURenderPass(cmd_buffer, &color_target, 1, nil)
+      depth_target := sdl.GPUDepthStencilTargetInfo {
+        texture     = g_mem.depth_texture,
+        load_op     = .CLEAR,
+        store_op    = .DONT_CARE,
+        clear_depth = 1,
+      }
+
+      render_pass := sdl.BeginGPURenderPass(cmd_buffer, &color_target, 1, &depth_target)
       defer sdl.EndGPURenderPass(render_pass)
 
       sdl.BindGPUGraphicsPipeline(render_pass, g_mem.pipeline)
-      sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding{ buffer = g_mem.vertex_buf }), 1)
-      sdl.BindGPUIndexBuffer(render_pass, { buffer = g_mem.index_buf }, ._16BIT)
-      sdl.PushGPUVertexUniformData(cmd_buffer, 0, &ubo, size_of(ubo))
-      sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding{
-        texture = g_mem.texture,
-        sampler = g_mem.sampler,
-      }), 1)
-      sdl.DrawGPUIndexedPrimitives(render_pass, 6, 1, 0, 0, 0)
+
+      // sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding{ buffer = g_mem.vertex_buf }), 1)
+      // sdl.BindGPUIndexBuffer(render_pass, { buffer = g_mem.index_buf }, ._16BIT)
+      // sdl.PushGPUVertexUniformData(cmd_buffer, 0, &ubo, size_of(ubo))
+      // sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding{
+      //   texture = g_mem.texture,
+      //   sampler = g_mem.sampler,
+      // }), 1)
+      // sdl.DrawGPUIndexedPrimitives(render_pass, 6, 1, 0, 0, 0)
+
+      render_world(&g_mem.world, render_pass, cmd_buffer, &ubo)
     }
 
     imgui_impl_sdlgpu3.NewFrame()
@@ -210,13 +223,13 @@ game_init :: proc() {
 
   assert(sdl.Init({ .VIDEO }), "Could not init SDL3")
   when ODIN_DEBUG {
-    sdl.SetLogPriorities(.VERBOSE)
+    sdl.SetLogPriorities(.TRACE)
     // use custom callback to make sdl call core:log
   }
 
   g_mem.last_ticks = sdl.GetTicks()
 
-  g_mem.window = sdl.CreateWindow("title", WINDOW_WIDTH, WINDOW_HEIGHT, { .OPENGL, .RESIZABLE })
+  g_mem.window = sdl.CreateWindow("title", WINDOW_WIDTH, WINDOW_HEIGHT, {})
   assert(g_mem.window != nil, "Could not create window")
 
   g_mem.device = sdl.CreateGPUDevice({.SPIRV}, ODIN_DEBUG, nil)
@@ -246,34 +259,54 @@ game_init :: proc() {
   }
 
   vert_shader := create_shader(g_mem.device, VERT_SHADER_CODE, .VERTEX,   num_uniform_buffers = 1, num_samplers = 0)
-  frag_shader := create_shader(g_mem.device, FRAG_SHADER_CODE, .FRAGMENT, num_uniform_buffers = 0, num_samplers = 1)
+  frag_shader := create_shader(g_mem.device, FRAG_SHADER_CODE, .FRAGMENT, num_uniform_buffers = 0, num_samplers = 0)
 
   TEXTURE_BYTES :: #load("../res/texture.jpg")
 
-  image_size: [2]i32
-  pixels := stbi.load_from_memory(raw_data(TEXTURE_BYTES), cast(i32) len(TEXTURE_BYTES), &image_size.x, &image_size.y, nil, 4)
-  pixels_bytes := image_size.x * image_size.y * 4
-  assert(pixels != nil)
+  // image_size: [2]i32
+  // pixels := stbi.load_from_memory(raw_data(TEXTURE_BYTES), cast(i32) len(TEXTURE_BYTES), &image_size.x, &image_size.y, nil, 4)
+  // pixels_bytes := image_size.x * image_size.y * 4
+  // assert(pixels != nil)
 
-  g_mem.texture = sdl.CreateGPUTexture(g_mem.device, {
-    format = .R8G8B8A8_UNORM,
-    usage  = {.SAMPLER},
-    width  = u32(image_size.x),
-    height = u32(image_size.y),
+  // g_mem.texture = sdl.CreateGPUTexture(g_mem.device, {
+  //   format = .R8G8B8A8_UNORM,
+  //   usage  = {.SAMPLER},
+  //   width  = u32(image_size.x),
+  //   height = u32(image_size.y),
+  //   layer_count_or_depth = 1,
+  //   num_levels           = 1,
+  // })
+
+  // tex_transfer_buf := sdl.CreateGPUTransferBuffer(g_mem.device, {
+  //   usage = .UPLOAD,
+  //   size  = u32(pixels_bytes),
+  // })
+  // assert(tex_transfer_buf != nil)
+
+  // tex_transfer_mem := cast([^]byte)sdl.MapGPUTransferBuffer(g_mem.device, tex_transfer_buf, false)
+  // mem.copy(tex_transfer_mem, pixels, int(pixels_bytes))
+
+  // stbi.image_free(pixels)
+
+  depth_format: sdl.GPUTextureFormat = .D16_UNORM
+
+  if sdl.GPUTextureSupportsFormat(g_mem.device, .D32_FLOAT, .D2, {.DEPTH_STENCIL_TARGET}) {
+    depth_format = .D32_FLOAT
+  } else if sdl.GPUTextureSupportsFormat(g_mem.device, .D24_UNORM, .D2, {.DEPTH_STENCIL_TARGET}) {
+    depth_format = .D24_UNORM
+  }
+  log.debugf("Using %v depth format.", depth_format)
+
+  g_mem.depth_texture = sdl.CreateGPUTexture(g_mem.device, {
+    format               = depth_format,
+    usage                = {.DEPTH_STENCIL_TARGET},
+    width                = WINDOW_WIDTH,
+    height               = WINDOW_HEIGHT,
     layer_count_or_depth = 1,
     num_levels           = 1,
   })
 
-  tex_transfer_buf := sdl.CreateGPUTransferBuffer(g_mem.device, {
-    usage = .UPLOAD,
-    size  = u32(pixels_bytes),
-  })
-  assert(tex_transfer_buf != nil)
-
-  tex_transfer_mem := cast([^]byte)sdl.MapGPUTransferBuffer(g_mem.device, tex_transfer_buf, false)
-  mem.copy(tex_transfer_mem, pixels, int(pixels_bytes))
-
-  stbi.image_free(pixels)
+  generate_world(&g_mem.world)
 
   // describe vertex attributes and vertex buffers in the pipeline
   Vertex :: struct {
@@ -284,45 +317,45 @@ game_init :: proc() {
 
   // vertices, indices := generate_world(&g_mem.world)
 
-  vertices := []Vertex {
-    { pos = {-.5,  .5, 0}, color = {1, 0, 0}, uv = {0, 0} }, // tl
-    { pos = { .5,  .5, 0}, color = {0, 1, 0}, uv = {1, 0} }, // tr
-    { pos = {-.5, -.5, 0}, color = {0, 0, 1}, uv = {0, 1} }, // bl
-    { pos = { .5, -.5, 0}, color = {1, 1, 0}, uv = {1, 1} }, // br
-  }
-  vertices_bytes := len(vertices) * size_of(vertices[0])
+  // vertices := []Vertex {
+  //   { pos = {-.5,  .5, 0}, color = {1, 0, 0}, uv = {0, 0} }, // tl
+  //   { pos = { .5,  .5, 0}, color = {0, 1, 0}, uv = {1, 0} }, // tr
+  //   { pos = {-.5, -.5, 0}, color = {0, 0, 1}, uv = {0, 1} }, // bl
+  //   { pos = { .5, -.5, 0}, color = {1, 1, 0}, uv = {1, 1} }, // br
+  // }
+  // vertices_bytes := len(vertices) * size_of(vertices[0])
 
-  g_mem.vertex_buf = sdl.CreateGPUBuffer(g_mem.device, {
-    usage = {.VERTEX},
-    size  = u32(vertices_bytes),
-  })
-  assert(g_mem.vertex_buf != nil)
+  // g_mem.vertex_buf = sdl.CreateGPUBuffer(g_mem.device, {
+  //   usage = {.VERTEX},
+  //   size  = u32(vertices_bytes),
+  // })
+  // assert(g_mem.vertex_buf != nil)
 
-  indices := []u16 {
-    0, 1, 2,
-    2, 1, 3,
-  }
-  indices_bytes := len(indices) * size_of(indices[0])
+  // indices := []u16 {
+  //   0, 1, 2,
+  //   2, 1, 3,
+  // }
+  // indices_bytes := len(indices) * size_of(indices[0])
 
-  g_mem.index_buf = sdl.CreateGPUBuffer(g_mem.device, {
-    usage = {.INDEX},
-    size  = u32(indices_bytes),
-  })
-  assert(g_mem.index_buf != nil)
+  // g_mem.index_buf = sdl.CreateGPUBuffer(g_mem.device, {
+  //   usage = {.INDEX},
+  //   size  = u32(indices_bytes),
+  // })
+  // assert(g_mem.index_buf != nil)
 
-  // upload vertex data to vertex buffer
-  // * create transfer buffer (cpu -> gpu)
-  transfer_buf := sdl.CreateGPUTransferBuffer(g_mem.device, {
-    usage = .UPLOAD,
-    size  = u32(vertices_bytes + indices_bytes), // +indices
-  })
-  assert(transfer_buf != nil)
+  // // upload vertex data to vertex buffer
+  // // * create transfer buffer (cpu -> gpu)
+  // transfer_buf := sdl.CreateGPUTransferBuffer(g_mem.device, {
+  //   usage = .UPLOAD,
+  //   size  = u32(vertices_bytes + indices_bytes), // +indices
+  // })
+  // assert(transfer_buf != nil)
 
-  // * map transfer buffer memory & copy from cpu
-  transfer_mem := cast([^]byte) sdl.MapGPUTransferBuffer(g_mem.device, transfer_buf, false)
-  mem.copy(transfer_mem, raw_data(vertices), vertices_bytes)
-  mem.copy(transfer_mem[vertices_bytes:], raw_data(indices), indices_bytes)
-  sdl.UnmapGPUTransferBuffer(g_mem.device, transfer_buf)
+  // // * map transfer buffer memory & copy from cpu
+  // transfer_mem := cast([^]byte) sdl.MapGPUTransferBuffer(g_mem.device, transfer_buf, false)
+  // mem.copy(transfer_mem, raw_data(vertices), vertices_bytes)
+  // mem.copy(transfer_mem[vertices_bytes:], raw_data(indices), indices_bytes)
+  // sdl.UnmapGPUTransferBuffer(g_mem.device, transfer_buf)
 
   // * begin copy pass
   {
@@ -332,56 +365,56 @@ game_init :: proc() {
     copy_pass := sdl.BeginGPUCopyPass(copy_cmd_buf)
     defer sdl.EndGPUCopyPass(copy_pass)
 
-    // upload vertices
-    sdl.UploadToGPUBuffer(
-      copy_pass,
-      { transfer_buffer = transfer_buf },
-      { buffer = g_mem.vertex_buf, size = u32(vertices_bytes) },
-      false,
-    )
+    // // upload vertices
+    // sdl.UploadToGPUBuffer(
+    //   copy_pass,
+    //   { transfer_buffer = transfer_buf },
+    //   { buffer = g_mem.vertex_buf, size = u32(vertices_bytes) },
+    //   false,
+    // )
 
-    // upload indices
-    sdl.UploadToGPUBuffer(
-      copy_pass,
-      { transfer_buffer = transfer_buf, offset = u32(vertices_bytes) },
-      { buffer = g_mem.index_buf, size = u32(indices_bytes) },
-      false,
-    )
+    // // upload indices
+    // sdl.UploadToGPUBuffer(
+    //   copy_pass,
+    //   { transfer_buffer = transfer_buf, offset = u32(vertices_bytes) },
+    //   { buffer = g_mem.index_buf, size = u32(indices_bytes) },
+    //   false,
+    // )
 
-    sdl.UploadToGPUTexture(
-      copy_pass,
-      { transfer_buffer = tex_transfer_buf },
-      { texture = g_mem.texture, w = u32(image_size.x), h = u32(image_size.y), d = 1 },
-      false,
-    )
+    // sdl.UploadToGPUTexture(
+    //   copy_pass,
+    //   { transfer_buffer = tex_transfer_buf },
+    //   { texture = g_mem.texture, w = u32(image_size.x), h = u32(image_size.y), d = 1 },
+    //   false,
+    // )
 
     // * end copy pass and submit
   }
 
-  sdl.ReleaseGPUTransferBuffer(g_mem.device, transfer_buf)
-  sdl.ReleaseGPUTransferBuffer(g_mem.device, tex_transfer_buf)
+  // sdl.ReleaseGPUTransferBuffer(g_mem.device, transfer_buf)
+  // sdl.ReleaseGPUTransferBuffer(g_mem.device, tex_transfer_buf)
 
-  g_mem.sampler = sdl.CreateGPUSampler(g_mem.device, {})
+  // g_mem.sampler = sdl.CreateGPUSampler(g_mem.device, {})
 
   vertex_attrs := []sdl.GPUVertexAttribute {
     {
       // position attr
       location = 0,
       format   = .FLOAT3,
-      offset   = u32(offset_of(Vertex, pos)),
+      offset   = 0, // u32(offset_of(Vertex, pos))
     },
-    {
-      // color attr
-      location = 1,
-      format   = .FLOAT3,
-      offset   = u32(offset_of(Vertex, color)),
-    },
-    {
-      // uv attr
-      location = 2,
-      format   = .FLOAT2,
-      offset   = u32(offset_of(Vertex, uv)),
-    },
+    // {
+    //   // color attr
+    //   location = 1,
+    //   format   = .FLOAT3,
+    //   offset   = u32(offset_of(Vertex, color)),
+    // },
+    // {
+    //   // uv attr
+    //   location = 2,
+    //   format   = .FLOAT2,
+    //   offset   = u32(offset_of(Vertex, uv)),
+    // },
   }
 
   g_mem.pipeline = sdl.CreateGPUGraphicsPipeline(g_mem.device, {
@@ -392,20 +425,27 @@ game_init :: proc() {
       num_vertex_buffers         = 1,
       vertex_buffer_descriptions = &(sdl.GPUVertexBufferDescription {
         slot = 0,
-        pitch = size_of(Vertex),
+        pitch = size_of(vec3),
       }),
       num_vertex_attributes = u32(len(vertex_attrs)),
       vertex_attributes     = raw_data(vertex_attrs),
     },
-    // rasterizer_state = {
-    //   fill_mode = .FILL,
-    //   cull_mode = .BACK,
-    // },
+    rasterizer_state = {
+      fill_mode = .FILL,
+      cull_mode = .BACK,
+    },
+    depth_stencil_state = {
+      compare_op = .LESS,
+      enable_depth_test = true,
+      enable_depth_write = true,
+    },
     target_info = {
       num_color_targets         = 1,
       color_target_descriptions = &(sdl.GPUColorTargetDescription{
         format = sdl.GetGPUSwapchainTextureFormat(g_mem.device, g_mem.window),
       }),
+      has_depth_stencil_target = true,
+      depth_stencil_format     = depth_format,
     },
   })
 
@@ -456,6 +496,8 @@ game_init :: proc() {
 
 @(export)
 game_shutdown :: proc() {
+  delete(g_mem.world.chunk.vertices)
+  delete(g_mem.world.chunk.indices)
   free(g_mem)
 }
 
@@ -548,6 +590,7 @@ ui_overlay :: proc(p_show: ^bool) {
 
   if im.Begin("Overlay", nil, window_flags) {
     im.Text("%.3f ms/frame (%.1f FPS)", 1000.0 / io.Framerate, io.Framerate)
+    im.Text("Position: (%.2f, %.2f, %.2f)", g_mem.camera.x, g_mem.camera.y, g_mem.camera.z)
     if im.BeginPopupContextWindow() {
       if im.MenuItem("Center",       selected = (location == CENTER))       do location = CENTER
       if im.MenuItem("Top-Left",     selected = (location == TOP_LEFT))     do location = TOP_LEFT

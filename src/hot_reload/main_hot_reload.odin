@@ -113,7 +113,7 @@ main :: proc() {
     err := false
 
     for _, value in a.allocation_map {
-      fmt.printf("%v: Leaked %v bytes\n", value.location, value.size)
+      log.errorf("%v: Leaked %v bytes\n", value.location, value.size)
       err = true
     }
 
@@ -125,7 +125,7 @@ main :: proc() {
   game_api, game_api_ok := load_game_api(game_api_version)
 
   if !game_api_ok {
-    fmt.println("Failed to load Game API")
+    log.fatal("Failed to load Game API")
     return
   }
 

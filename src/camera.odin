@@ -5,7 +5,7 @@ import "core:math"
 import "core:math/linalg"
 import sdl "vendor:sdl3"
 
-MOVE_SPEED       :: 5
+MOVE_SPEED       :: 30
 LOOK_SENSITIVITY :: 0.1
 
 Camera :: struct {
@@ -15,7 +15,9 @@ Camera :: struct {
 }
 
 init_camera :: proc(camera: ^Camera) {
-  camera.position = {0, 0, 5}
+  camera.position = {8, 8, 32}
+  // camera.position = {0, 4, 31}
+  // camera.position = {31, 3, 31}
   _ = sdl.SetWindowRelativeMouseMode(g_mem.window, g_mem.mouse_locked)
 }
 

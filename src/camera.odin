@@ -16,8 +16,6 @@ Camera :: struct {
 
 init_camera :: proc(camera: ^Camera) {
   camera.position = {8, 8, 32}
-  // camera.position = {0, 4, 31}
-  // camera.position = {31, 3, 31}
   _ = sdl.SetWindowRelativeMouseMode(g_mem.window, g_mem.mouse_locked)
 }
 
@@ -47,4 +45,8 @@ update_camera :: proc(camera: ^Camera) {
 
   camera.position += motion
   camera.direction = forward
+}
+
+view_matrix :: #force_inline proc(camera: ^Camera) -> mat4 {
+  return linalg.matrix4_look_at_f32(camera.position, camera.position + camera.direction, WORLD_UP)
 }

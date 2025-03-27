@@ -89,12 +89,11 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
   for i in 0 ..< CHUNK_VOLUME {
     x := i % CHUNK_WIDTH
     y := i / CHUNK_WIDTH % CHUNK_HEIGHT
-    z := i / CHUNK_WIDTH / CHUNK_HEIGHT % CHUNK_DEPTH
+    z := i / CHUNK_WIDTH / CHUNK_HEIGHT % CHUNK_LENGTH
 
     voxel := get_voxel(chunk, x, y, z)
     if voxel == nil || voxel.type == .None do continue
 
-    // @TODO: Check surrounding chunk voxels
     voxel_top    := get_voxel(chunk, x    , y + 1, z    )
     voxel_bottom := get_voxel(chunk, x    , y - 1, z    )
     voxel_left   := get_voxel(chunk, x - 1, y    , z    )
@@ -102,19 +101,6 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
     voxel_front  := get_voxel(chunk, x    , y    , z + 1)
     voxel_back   := get_voxel(chunk, x    , y    , z - 1)
 
-    if x == 0 && y == 4 && z == 31 {
-      // my chunk is 32x16x32 but when i get the voxel_left which for this position,
-      // should be [-1, 4, 31] i get this one instead [31, 3, 31]
-
-      fmt.println("b")
-      // assert(is_transparent(voxel_top),     fmt.tprint("%v", voxel_top))
-      // assert(!is_transparent(voxel_bottom), fmt.tprint("%v", voxel_bottom))
-      assert(is_transparent(voxel_left),    fmt.tprint("%v", voxel_left)) // THIS ONE IS THE PROBLEM
-      // assert(!is_transparent(voxel_right),  fmt.tprint("%v", voxel_right))
-      // assert(is_transparent(voxel_front),   fmt.tprint("%v", voxel_front))
-      // assert(is_transparent(voxel_back),    fmt.tprint("%v", voxel_back))
-    }
-    
     // @TODO: Vertex pulling
     if check_face(voxel, voxel_top)    do add_face(chunk, x, y, z, .Top)
     if check_face(voxel, voxel_bottom) do add_face(chunk, x, y, z, .Bottom)
@@ -135,16 +121,6 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
     usage = {.INDEX},
     size  = u32(indices_bytes),
   })
-
-  log.debug("len(vertices):", len(chunk.vertices))
-  log.debug("len(indices): ", len(chunk.indices))
-  log.debug("vertices_bytes:", vertices_bytes)
-  log.debug("indices_bytes: ", indices_bytes)
-
-  // assert(vertices_bytes > 0)
-  // assert(indices_bytes > 0)
-  assert(chunk.vertex_buf != nil)
-  assert(chunk.index_buf != nil)
 
   // @TODO: use 1 transfer buffer for all?
   transfer_buf := sdl.CreateGPUTransferBuffer(g_mem.device, {

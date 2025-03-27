@@ -135,11 +135,7 @@ game_tick :: proc() -> (quit: bool) {
 
   assert(sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buffer, g_mem.window, &swapchain_tex, nil, nil))
 
-  view_mat  := linalg.matrix4_look_at_f32(g_mem.camera.position, g_mem.camera.position + g_mem.camera.direction, WORLD_UP)
-  model_mat := linalg.matrix4_translate_f32({0, 0, 0}) * linalg.matrix4_rotate_f32(g_mem.rotation, WORLD_UP)
-  ubo := UBO{
-    mvp = g_mem.proj_mat * view_mat * model_mat,
-  }
+  // model_mat := linalg.matrix4_translate_f32({0, 0, 0}) * linalg.matrix4_rotate_f32(g_mem.rotation, WORLD_UP)
 
   if swapchain_tex != nil {
     // MARK: render pass
@@ -172,7 +168,7 @@ game_tick :: proc() -> (quit: bool) {
       // }), 1)
       // sdl.DrawGPUIndexedPrimitives(render_pass, 6, 1, 0, 0, 0)
 
-      render_world(&g_mem.world, render_pass, cmd_buffer, &ubo)
+      render_world(&g_mem.world, render_pass, cmd_buffer)
     }
 
     imgui_impl_sdlgpu3.NewFrame()
@@ -496,8 +492,14 @@ game_init :: proc() {
 
 @(export)
 game_shutdown :: proc() {
-  delete(g_mem.world.chunk.vertices)
-  delete(g_mem.world.chunk.indices)
+  for x in 0 ..< WORLD_WIDTH {
+    for z in 0 ..< WORLD_LENGTH {
+      chunk := &g_mem.world.chunks[x][z]
+      delete(chunk.vertices)
+      delete(chunk.indices)
+    }
+  }
+
   free(g_mem)
 }
 

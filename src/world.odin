@@ -39,8 +39,7 @@ Chunk :: struct {
   voxels:               [CHUNK_VOLUME]Voxel,
 
   mesh_generated: bool,
-  vertices:       [dynamic]f32,
-  indices:        [dynamic]u16,
+  num_indices:    u32,
 
   vertex_buf: ^sdl.GPUBuffer,
   index_buf:  ^sdl.GPUBuffer,
@@ -142,7 +141,7 @@ render_world :: proc(world: ^World, render_pass: ^sdl.GPURenderPass, cmd_buffer:
         //   texture = g_mem.texture,
         //   sampler = g_mem.sampler,
         // }), 1)
-        sdl.DrawGPUIndexedPrimitives(render_pass, u32(len(chunk.indices)), 1, 0, 0, 0)
+        sdl.DrawGPUIndexedPrimitives(render_pass, chunk.num_indices, 1, 0, 0, 0)
       }
     }
   }

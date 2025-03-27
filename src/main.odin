@@ -492,14 +492,6 @@ game_init :: proc() {
 
 @(export)
 game_shutdown :: proc() {
-  for x in 0 ..< WORLD_WIDTH {
-    for z in 0 ..< WORLD_LENGTH {
-      chunk := &g_mem.world.chunks[x][z]
-      delete(chunk.vertices)
-      delete(chunk.indices)
-    }
-  }
-
   free(g_mem)
 }
 

@@ -11,13 +11,6 @@ Vertex_Data :: struct {
 }
 
 generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
-  check_face :: #force_inline proc(voxel, other: ^Voxel) -> bool {
-    return other == nil || other.type == .None
-    // if other == nil do return true
-    // return is_transparent(other)
-    // return other.type == .None || (voxel.type != other.type && is_transparent(other))
-  }
-
   Face_Side :: enum {
     Top,
     Bottom,
@@ -27,14 +20,11 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
     Back,
   }
   
-  add_face :: #force_inline proc(chunk: ^Chunk, xi, yi, zi: int, side: Face_Side) {
-    base_idx := u16(len(chunk.vertices) / 3)
-
+  add_face :: #force_inline proc(vertices: ^[dynamic]f32, indices: ^[dynamic]u16, xi, yi, zi: int, side: Face_Side) {
+    FLOATS_PER_VERTEX :: 3
+    
+    base_idx := u16(len(vertices) / FLOATS_PER_VERTEX)
     x, y, z := f32(xi), f32(yi), f32(zi)
-
-    if xi == 0 && yi == 4 && zi == 31 {
-      fmt.println("break")
-    }
 
     top_left  := vec3{x, y, z}
     bot_left  := vec3{x, y, z}
@@ -74,16 +64,19 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
         top_right += {-0.5,  0.5, -0.5}
     }
 
-    append(&chunk.vertices, ..top_left[:])
-    append(&chunk.vertices, ..bot_left[:])
-    append(&chunk.vertices, ..bot_right[:])
-    append(&chunk.vertices, ..top_right[:])
+    append(vertices, ..top_left[:])
+    append(vertices, ..bot_left[:])
+    append(vertices, ..bot_right[:])
+    append(vertices, ..top_right[:])
 
-    append(&chunk.indices,
+    append(indices,
       0 + base_idx, 1 + base_idx, 2 + base_idx,
       2 + base_idx, 3 + base_idx, 0 + base_idx,
     )
   }
+  
+  vertices: [dynamic]f32; defer delete(vertices)
+  indices:  [dynamic]u16; defer delete(indices)
 
   // @TODO: greedy meshing
   for i in 0 ..< CHUNK_VOLUME {
@@ -100,18 +93,24 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
     voxel_right  := get_voxel(chunk, x + 1, y    , z    )
     voxel_front  := get_voxel(chunk, x    , y    , z + 1)
     voxel_back   := get_voxel(chunk, x    , y    , z - 1)
+    
+    check_face :: #force_inline proc(voxel, other: ^Voxel) -> bool {
+      // @TODO: Check neighbouring chunk's voxels
+      return other == nil || other.type == .None ||
+             (voxel.type != other.type && is_transparent(other))
+    }
 
     // @TODO: Vertex pulling
-    if check_face(voxel, voxel_top)    do add_face(chunk, x, y, z, .Top)
-    if check_face(voxel, voxel_bottom) do add_face(chunk, x, y, z, .Bottom)
-    if check_face(voxel, voxel_left)   do add_face(chunk, x, y, z, .Left)
-    if check_face(voxel, voxel_right)  do add_face(chunk, x, y, z, .Right)
-    if check_face(voxel, voxel_front)  do add_face(chunk, x, y, z, .Front)
-    if check_face(voxel, voxel_back)   do add_face(chunk, x, y, z, .Back)
+    if check_face(voxel, voxel_top)    do add_face(&vertices, &indices, x, y, z, .Top)
+    if check_face(voxel, voxel_bottom) do add_face(&vertices, &indices, x, y, z, .Bottom)
+    if check_face(voxel, voxel_left)   do add_face(&vertices, &indices, x, y, z, .Left)
+    if check_face(voxel, voxel_right)  do add_face(&vertices, &indices, x, y, z, .Right)
+    if check_face(voxel, voxel_front)  do add_face(&vertices, &indices, x, y, z, .Front)
+    if check_face(voxel, voxel_back)   do add_face(&vertices, &indices, x, y, z, .Back)
   }
 
-  vertices_bytes := len(chunk.vertices) * size_of(f32)
-  indices_bytes  := len(chunk.indices)  * size_of(u16)
+  vertices_bytes := len(vertices) * size_of(vertices[0])
+  indices_bytes  := len(indices)  * size_of(indices[0])
 
   chunk.vertex_buf = sdl.CreateGPUBuffer(g_mem.device, {
     usage = {.VERTEX},
@@ -130,8 +129,8 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
   assert(transfer_buf != nil)
 
   transfer_mem := cast([^]byte) sdl.MapGPUTransferBuffer(g_mem.device, transfer_buf, false)
-  mem.copy(transfer_mem, raw_data(chunk.vertices), vertices_bytes)
-  mem.copy(transfer_mem[vertices_bytes:], raw_data(chunk.indices), indices_bytes)
+  mem.copy(transfer_mem, raw_data(vertices), vertices_bytes)
+  mem.copy(transfer_mem[vertices_bytes:], raw_data(indices), indices_bytes)
   sdl.UnmapGPUTransferBuffer(g_mem.device, transfer_buf)
 
   // upload vertices
@@ -152,19 +151,8 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
   
   sdl.ReleaseGPUTransferBuffer(g_mem.device, transfer_buf)
 
-  // vertices_handle, err := os.open("debug_vertices.txt", os.O_TRUNC | os.O_CREATE | os.O_RDWR)
-  // defer os.close(vertices_handle)
-  // for c in chunk.vertices {
-  //   fmt.fprintfln(vertices_handle, "%v, ", c)
-  // }
-
-  // indices_handle, err2 := os.open("debug_indices.txt", os.O_TRUNC | os.O_CREATE | os.O_RDWR)
-  // defer os.close(indices_handle)
-  // for c in chunk.indices {
-  //   fmt.fprintfln(indices_handle, "%v, ", c)
-  // }
+  chunk.mesh_generated = true
+  chunk.num_indices    = u32(len(indices))
 
   log.debug("Mesh generated.")
-
-  chunk.mesh_generated = true
 }

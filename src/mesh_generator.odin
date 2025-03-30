@@ -88,17 +88,19 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
     voxel := get_voxel(chunk, x, y, z)
     if voxel == nil || voxel.type == .None do continue
 
-    voxel_top    := get_voxel(chunk, x    , y + 1, z    )
-    voxel_bottom := get_voxel(chunk, x    , y - 1, z    )
-    voxel_left   := get_voxel(chunk, x - 1, y    , z    )
-    voxel_right  := get_voxel(chunk, x + 1, y    , z    )
-    voxel_front  := get_voxel(chunk, x    , y    , z + 1)
-    voxel_back   := get_voxel(chunk, x    , y    , z - 1)
-    
+    wx := int(CHUNK_WIDTH  * chunk.x) + x
+    wy := int(CHUNK_HEIGHT * chunk.y) + y
+    wz := int(CHUNK_LENGTH * chunk.z) + z
+
+    voxel_top    := get_voxel_world(g_mem.world, wx    , wy + 1, wz    )
+    voxel_bottom := get_voxel_world(g_mem.world, wx    , wy - 1, wz    )
+    voxel_left   := get_voxel_world(g_mem.world, wx - 1, wy    , wz    )
+    voxel_right  := get_voxel_world(g_mem.world, wx + 1, wy    , wz    )
+    voxel_front  := get_voxel_world(g_mem.world, wx    , wy    , wz + 1)
+    voxel_back   := get_voxel_world(g_mem.world, wx    , wy    , wz - 1)
+
     check_face :: #force_inline proc(voxel, other: ^Voxel) -> bool {
-      // @TODO: Check neighbouring chunk's voxels
-      return other == nil || other.type == .None ||
-             (voxel.type != other.type && is_transparent(other))
+      return other == nil || other.type == .None// || (voxel.type != other.type && is_transparent(other))
     }
 
     // @TODO: Vertex pulling
@@ -112,6 +114,11 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
 
   vertices_bytes := len(vertices) * size_of(vertices[0])
   indices_bytes  := len(indices)  * size_of(indices[0])
+
+  if vertices_bytes == 0 {
+    // Don't upload empty mesh to GPU.
+    return
+  }
 
   chunk.vertex_buf = sdl.CreateGPUBuffer(g_mem.device, {
     usage = {.VERTEX},
@@ -154,6 +161,4 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
 
   chunk.mesh_generated = true
   chunk.num_indices    = u32(len(indices))
-
-  log.debug("Mesh generated.")
 }

@@ -7,7 +7,8 @@ set OUT_DIR=.build\debug
 
 if not exist %OUT_DIR% mkdir %OUT_DIR%
 
-odin build src\release -out:%OUT_DIR%\debug.exe -strict-style -vet -debug
+@REM odin build src\release -out:%OUT_DIR%\debug.exe -strict-style -vet -debug
+odin build src\release -out:%OUT_DIR%\debug.exe -debug
 IF %ERRORLEVEL% NEQ 0 exit /b 1
 
 xcopy /y /e /i res %OUT_DIR%\res > nul

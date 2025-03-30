@@ -47,13 +47,10 @@ Game_Memory :: struct {
   atlas_sampler: ^sdl.GPUSampler,
   depth_texture: ^sdl.GPUTexture,
 
-  proj_mat:       mat4,
-  last_ticks:     u64,
-  rotation:       f32 `min_max:"0,360" angle`,
-  rotation_delta: f32 `min_max:"0,360" angle`,
-  fov:            f32 `min_max:"30,110" angle`,
-
-  clear_color:      RGBA `spacing no_alpha`,
+  proj_mat:         mat4,
+  last_ticks:       u64,
+  fov:              f32 `min_max:"30,110" angle`,
+  clear_color:      RGBA `no_alpha`,
   show_imgui_demo:  bool `show`,
   show_ui_overlay:  bool `show`,
 
@@ -79,7 +76,6 @@ Game_Memory :: struct {
 
 game_memory_default :: #force_inline proc() -> Game_Memory {
   return {
-    rotation_delta  = linalg.to_radians(f32(0)),
     fov             = linalg.to_radians(f32(70)),
     clear_color     = rgba(0x101010FF),
     show_ui_overlay = true,
@@ -120,7 +116,6 @@ game_tick :: proc() -> (quit: bool) {
   aspect_ratio := f32(window_size.x) / f32(window_size.y)
 
   // update
-  g_mem.rotation = wrap_radians(g_mem.rotation + g_mem.rotation_delta * g_mem.delta_time)
   g_mem.proj_mat = linalg.matrix4_perspective(g_mem.fov, aspect_ratio, 0.001, 1000)
 
   update_camera(&g_mem.camera)
@@ -175,6 +170,20 @@ game_tick :: proc() -> (quit: bool) {
     ui_game_memory("Game Memory")
     if g_mem.show_ui_overlay do ui_overlay(&g_mem.show_ui_overlay)
     if g_mem.show_imgui_demo do im.ShowDemoWindow(&g_mem.show_imgui_demo)
+
+    when ODIN_DEBUG {
+      if im.Begin("Debug") {
+        @(static)
+        teleport_vec3: vec3
+        im.InputFloat("x", &teleport_vec3.x)
+        im.InputFloat("y", &teleport_vec3.y)
+        im.InputFloat("z", &teleport_vec3.z)
+        if im.Button("Teleport") {
+          g_mem.camera.position = teleport_vec3
+        }
+      }
+      im.End()
+    }
 
     im.Render()
     draw_data := im.GetDrawData()
@@ -344,19 +353,19 @@ game_init :: proc() {
       // position attr
       location = 0,
       format   = .FLOAT3,
-      offset   = u32(offset_of(Vertex_Data, pos))
+      offset   = u32(offset_of(Vertex_Data, pos)),
     },
     {
       // texcoord attr
       location = 1,
       format   = .FLOAT2,
-      offset   = u32(offset_of(Vertex_Data, texcoord))
+      offset   = u32(offset_of(Vertex_Data, texcoord)),
     },
     {
       // normal attr
       location = 2,
       format   = .UINT,
-      offset   = u32(offset_of(Vertex_Data, normal))
+      offset   = u32(offset_of(Vertex_Data, normal)),
     },
   }
 
@@ -521,7 +530,7 @@ ui_overlay :: proc(p_show: ^bool) {
     // Center window
     main_viewport_center := vec2{
       viewport.Pos.x + viewport.Size.x * 0.5,
-      viewport.Pos.y + viewport.Size.y * 0.5
+      viewport.Pos.y + viewport.Size.y * 0.5,
     }
 
     im.SetNextWindowPos(main_viewport_center, .Always, {0.5, 0.5})

@@ -1,5 +1,6 @@
 package main
 
+import "core:log"
 import "core:time"
 import "core:math"
 import "core:math/linalg"
@@ -46,6 +47,22 @@ Chunk :: struct {
   index_buf:  ^sdl.GPUBuffer,
 }
 
+get_voxel_world :: #force_inline proc(world: ^World, world_x, world_y, world_z: int) -> ^Voxel {
+  cx, cy, cz := world_to_chunk(world_x, world_y, world_z)
+  if cx < 0 || cx >= WORLD_WIDTH ||
+     cy < 0 || cy >= WORLD_HEIGHT ||
+     cz < 0 || cz >= WORLD_LENGTH {
+    return nil
+  }
+  chunk := &world.chunks[cx][cy][cz]
+
+  if chunk != nil {
+    lx, ly, lz := world_to_local_pos(world_x, world_y, world_z)
+    return get_voxel(chunk, lx, ly, lz)
+  }
+  return nil
+}
+
 get_voxel :: #force_inline proc(chunk: ^Chunk, local_x, local_y, local_z: int) -> ^Voxel {
   if local_x < 0 || local_x >= CHUNK_WIDTH ||
      local_y < 0 || local_y >= CHUNK_HEIGHT ||
@@ -70,6 +87,30 @@ set_voxel :: #force_inline proc(chunk: ^Chunk, local_x, local_y, local_z: int, t
   voxel.type = type
 }
 
+world_to_chunk :: proc(world_x, world_y, world_z: int) -> (chunk_x, chunk_y, chunk_z: int) {
+  chunk_x = world_x / CHUNK_WIDTH
+  chunk_y = world_y / CHUNK_HEIGHT
+  chunk_z = world_z / CHUNK_LENGTH
+  
+  if world_x < 0 do chunk_x = (world_x + 1) / CHUNK_WIDTH - 1
+  if world_y < 0 do chunk_y = (world_y + 1) / CHUNK_HEIGHT - 1
+  if world_z < 0 do chunk_z = (world_z + 1) / CHUNK_LENGTH - 1
+  
+  return
+}
+
+world_to_local_pos :: proc(world_x, world_y, world_z: int) -> (local_x, local_y, local_z: int) {
+  local_x = world_x % CHUNK_WIDTH
+  local_y = world_y % CHUNK_HEIGHT
+  local_z = world_z % CHUNK_LENGTH
+  
+  if local_x < 0 do local_x += CHUNK_WIDTH
+  if local_y < 0 do local_y += CHUNK_HEIGHT
+  if local_z < 0 do local_z += CHUNK_LENGTH
+  
+  return
+}
+
 // @TODO: Sliding window implementation (load/unload chunks as camera moves around)
 WORLD_WIDTH  :: 8
 WORLD_HEIGHT :: 4
@@ -80,6 +121,14 @@ World :: struct {
 }
 
 generate_world :: proc(world: ^World) {
+  log.debug("Generating world...")
+  start := time.now()
+  defer {
+    diff := time.diff(start, time.now())
+    ms   := time.duration_milliseconds(diff)
+    log.debugf("Took %.0f ms.", ms)
+  }
+
   copy_cmd_buf := sdl.AcquireGPUCommandBuffer(g_mem.device)
   assert(copy_cmd_buf != nil)
   defer assert(sdl.SubmitGPUCommandBuffer(copy_cmd_buf))
@@ -89,12 +138,15 @@ generate_world :: proc(world: ^World) {
   assert(copy_pass != nil)
 
   // SEED    :: 12345
+  // seed := i64(12345)
   seed := time.now()._nsec
 
   for cx in 0 ..< WORLD_WIDTH {
     for cy in 0 ..< WORLD_HEIGHT {
       for cz in 0 ..< WORLD_LENGTH {
         chunk := &world.chunks[cx][cy][cz]
+        chunk.local_position = {byte(cx), byte(cy), byte(cz)}
+
         OCTAVES :: 5
         NOISE_SCALE :: 2
       
@@ -116,7 +168,7 @@ generate_world :: proc(world: ^World) {
           noise_value := octave_noise_3d(seed, {
             NOISE_SCALE * nz,
             NOISE_SCALE * ny,
-            NOISE_SCALE * nx
+            NOISE_SCALE * nx,
           }, OCTAVES)// * (CHUNK_HEIGHT * WORLD_HEIGHT - 1)
 
           // Normalize noise to [0, 1] range
@@ -142,8 +194,7 @@ generate_world :: proc(world: ^World) {
   for cx in 0 ..< WORLD_WIDTH {
     for cy in 0 ..< WORLD_HEIGHT {
       for cz in 0 ..< WORLD_LENGTH {
-        chunk := &world.chunks[cx][cy][cz]
-        generate_mesh(chunk, copy_pass)
+        generate_mesh(&world.chunks[cx][cy][cz], copy_pass)
       }
     }
   }
@@ -163,7 +214,7 @@ render_world :: proc(world: ^World, render_pass: ^sdl.GPURenderPass, cmd_buffer:
           })
         
           ubo := UBO {
-            mvp = g_mem.proj_mat * view_matrix(&g_mem.camera) * model_mat
+            mvp = g_mem.proj_mat * view_matrix(&g_mem.camera) * model_mat,
           }
       
           sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding{ buffer = chunk.vertex_buf }), 1)

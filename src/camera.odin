@@ -38,10 +38,12 @@ update_camera :: proc(camera: ^Camera) {
   right    := look_mat * WORLD_RIGHT
   move_dir := forward * move_input.y + right * move_input.x
 
+  speed_multiplier := f32(1)
   if key_down(.SPACE)  do move_dir += WORLD_UP
   if key_down(.LSHIFT) do move_dir -= WORLD_UP
+  if key_down(.LCTRL)  do speed_multiplier = 2
 
-  motion := move_dir * MOVE_SPEED * g_mem.delta_time
+  motion := move_dir * MOVE_SPEED * speed_multiplier * g_mem.delta_time
 
   camera.position += motion
   camera.direction = forward

@@ -24,12 +24,13 @@ WINDOW_HEIGHT :: 768
 
 DISABLE_DOCKING :: #config(DISABLE_DOCKING, false)
 
-vec2 :: [2]f32
-vec3 :: [3]f32
-vec4 :: [4]f32
-RGB  :: vec3
-RGBA :: vec4
-mat4 :: matrix[4,4]f32
+vec3b :: [3]byte
+vec2  :: [2]f32
+vec3  :: [3]f32
+vec4  :: [4]f32
+RGB   :: vec3
+RGBA  :: vec4
+mat4  :: matrix[4,4]f32
 
 WORLD_RIGHT   :: vec3{1, 0,  0}
 WORLD_UP      :: vec3{0, 1,  0}
@@ -349,23 +350,11 @@ game_init :: proc() {
   g_mem.atlas_sampler = sdl.CreateGPUSampler(g_mem.device, {})
 
   vertex_attrs := []sdl.GPUVertexAttribute {
+    // packed 32 bit int data
     {
-      // position attr
       location = 0,
-      format   = .FLOAT3,
-      offset   = u32(offset_of(Vertex_Data, pos)),
-    },
-    {
-      // texcoord attr
-      location = 1,
-      format   = .FLOAT2,
-      offset   = u32(offset_of(Vertex_Data, texcoord)),
-    },
-    {
-      // normal attr
-      location = 2,
-      format   = .UINT,
-      offset   = u32(offset_of(Vertex_Data, normal)),
+      format   = .INT,
+      offset   = 0,
     },
   }
 
@@ -377,7 +366,7 @@ game_init :: proc() {
       num_vertex_buffers         = 1,
       vertex_buffer_descriptions = &(sdl.GPUVertexBufferDescription {
         slot = 0,
-        pitch = size_of(Vertex_Data),
+        pitch = size_of(Packed_Vertex_Data),
       }),
       num_vertex_attributes = u32(len(vertex_attrs)),
       vertex_attributes     = raw_data(vertex_attrs),

@@ -7,7 +7,7 @@ import "core:fmt"
 import sdl "vendor:sdl3"
 
 // @TODO: Efficiently pack vertex data.
-Face_Side :: enum {
+Face_Side :: enum byte {
   Top,
   Bottom,
   Left,
@@ -16,68 +16,86 @@ Face_Side :: enum {
   Back,
 }
 
-Vertex_Data :: struct {
-  pos:      vec3,
-  texcoord: vec2,
-  normal:   u32,
+Tex_Coord :: enum byte {
+  Top_Left,     // 00
+  Top_Right,    // 01
+  Bottom_Left,  // 10
+  Bottom_Right, // 11
+}
+
+Packed_Vertex_Data :: i32
+// 000000000VVNNNZZZZZZYYYYYYXXXXXX
+//          ^ ^  ^     ^     ^
+//          | |  Z     Y     X
+//          | Normal
+//          TexCoord
+
+pack_vertex_data :: proc(pos: vec3b, normal: Face_Side, texcoord: Tex_Coord) -> Packed_Vertex_Data {
+  return (cast(Packed_Vertex_Data)(texcoord) << 21) |
+         (cast(Packed_Vertex_Data)(normal)   << 18) |
+         (cast(Packed_Vertex_Data)(pos.z)    << 12) |
+         (cast(Packed_Vertex_Data)(pos.y)    << 6 ) |
+         (cast(Packed_Vertex_Data)(pos.x));
 }
 
 // @TODO: Don't generate faces where chunks are touching.
 generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
-  add_face :: #force_inline proc(vertices: ^[dynamic]Vertex_Data, indices: ^[dynamic]u16, xi, yi, zi: int, side: Face_Side) {
+  add_face :: #force_inline proc(vertices: ^[dynamic]Packed_Vertex_Data, indices: ^[dynamic]u16, xi, yi, zi: int, side: Face_Side) {
     base_idx := u16(len(vertices))
-    x, y, z := f32(xi), f32(yi), f32(zi)
 
-    top_left  := Vertex_Data{ pos = {x, y, z}, normal = u32(side), texcoord = {0.0, 0.0} }
-    bot_left  := Vertex_Data{ pos = {x, y, z}, normal = u32(side), texcoord = {0.0, 1.0} }
-    bot_right := Vertex_Data{ pos = {x, y, z}, normal = u32(side), texcoord = {1.0, 1.0} }
-    top_right := Vertex_Data{ pos = {x, y, z}, normal = u32(side), texcoord = {1.0, 0.0} }
+    top_left  := vec3b{ byte(xi), byte(yi), byte(zi) }
+    bot_left  := vec3b{ byte(xi), byte(yi), byte(zi) }
+    bot_right := vec3b{ byte(xi), byte(yi), byte(zi) }
+    top_right := vec3b{ byte(xi), byte(yi), byte(zi) }
 
     switch side {
       case .Left:
-        top_left.pos  += {-0.5,  0.5, -0.5}
-        bot_left.pos  += {-0.5, -0.5, -0.5}
-        bot_right.pos += {-0.5, -0.5,  0.5}
-        top_right.pos += {-0.5,  0.5,  0.5}
+        top_left  += {0, 1, 0}
+        bot_left  += {0, 0, 0}
+        bot_right += {0, 0, 1}
+        top_right += {0, 1, 1}
       case .Right:
-        top_left.pos  += { 0.5,  0.5,  0.5}
-        bot_left.pos  += { 0.5, -0.5,  0.5}
-        bot_right.pos += { 0.5, -0.5, -0.5}
-        top_right.pos += { 0.5,  0.5, -0.5}
+        top_left  += {1, 1, 1}
+        bot_left  += {1, 0, 1}
+        bot_right += {1, 0, 0}
+        top_right += {1, 1, 0}
       case .Top:
-        top_left.pos  += { 0.5,  0.5,  0.5}
-        bot_left.pos  += { 0.5,  0.5, -0.5}
-        bot_right.pos += {-0.5,  0.5, -0.5}
-        top_right.pos += {-0.5,  0.5,  0.5}
+        top_left  += {1, 1, 1}
+        bot_left  += {1, 1, 0}
+        bot_right += {0, 1, 0}
+        top_right += {0, 1, 1}
       case .Bottom:
-        top_left.pos  += {-0.5, -0.5,  0.5}
-        bot_left.pos  += {-0.5, -0.5, -0.5}
-        bot_right.pos += { 0.5, -0.5, -0.5}
-        top_right.pos += { 0.5, -0.5,  0.5}
+        top_left  += {0, 0, 1}
+        bot_left  += {0, 0, 0}
+        bot_right += {1, 0, 0}
+        top_right += {1, 0, 1}
       case .Front:
-        top_left.pos  += {-0.5,  0.5,  0.5}
-        bot_left.pos  += {-0.5, -0.5,  0.5}
-        bot_right.pos += { 0.5, -0.5,  0.5}
-        top_right.pos += { 0.5,  0.5,  0.5}
+        top_left  += {0, 1, 1}
+        bot_left  += {0, 0, 1}
+        bot_right += {1, 0, 1}
+        top_right += {1, 1, 1}
       case .Back:
-        top_left.pos  += { 0.5,  0.5, -0.5}
-        bot_left.pos  += { 0.5, -0.5, -0.5}
-        bot_right.pos += {-0.5, -0.5, -0.5}
-        top_right.pos += {-0.5,  0.5, -0.5}
+        top_left  += {1, 1, 0}
+        bot_left  += {1, 0, 0}
+        bot_right += {0, 0, 0}
+        top_right += {0, 1, 0}
     }
 
-    //               0         1         2          3
-    append(vertices, top_left, bot_left, bot_right, top_right)
-    //               0         3          1         2
-    // append(vertices, top_left, top_right, bot_left, bot_right)
+    tl_packed := pack_vertex_data(top_left, side, .Top_Left)
+    bl_packed := pack_vertex_data(bot_left, side, .Bottom_Left)
+    br_packed := pack_vertex_data(bot_right, side, .Bottom_Right)
+    tr_packed := pack_vertex_data(top_right, side, .Top_Right)
+
+    //               0          1          2          3
+    append(vertices, tl_packed, bl_packed, br_packed, tr_packed)
     append(indices,
       0 + base_idx, 1 + base_idx, 2 + base_idx,
       2 + base_idx, 3 + base_idx, 0 + base_idx,
     )
   }
   
-  vertices: [dynamic]Vertex_Data; defer delete(vertices)
-  indices:  [dynamic]u16;         defer delete(indices)
+  vertices: [dynamic]Packed_Vertex_Data; defer delete(vertices)
+  indices:  [dynamic]u16;                defer delete(indices)
 
   // @TODO: greedy meshing
   for i in 0 ..< CHUNK_VOLUME {

@@ -169,10 +169,10 @@ render_world :: proc(world: ^World, render_pass: ^sdl.GPURenderPass, cmd_buffer:
           sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding{ buffer = chunk.vertex_buf }), 1)
           sdl.BindGPUIndexBuffer(render_pass, { buffer = chunk.index_buf }, ._16BIT)
           sdl.PushGPUVertexUniformData(cmd_buffer, 0, &ubo, size_of(ubo))
-          // sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding{
-          //   texture = g_mem.texture,
-          //   sampler = g_mem.sampler,
-          // }), 1)
+          sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding{
+            texture = g_mem.atlas_texture,
+            sampler = g_mem.atlas_sampler,
+          }), 1)
           sdl.DrawGPUIndexedPrimitives(render_pass, chunk.num_indices, 1, 0, 0, 0)
         }
       }

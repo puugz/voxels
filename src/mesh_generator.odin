@@ -17,8 +17,9 @@ Face_Side :: enum {
 }
 
 Vertex_Data :: struct {
-  pos:    vec3,
-  normal: u32,
+  pos:      vec3,
+  texcoord: vec2,
+  normal:   u32,
 }
 
 // @TODO: Don't generate faces where chunks are touching.
@@ -27,10 +28,10 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
     base_idx := u16(len(vertices))
     x, y, z := f32(xi), f32(yi), f32(zi)
 
-    top_left  := Vertex_Data{ pos = {x, y, z}, normal = u32(side) }
-    bot_left  := Vertex_Data{ pos = {x, y, z}, normal = u32(side) }
-    bot_right := Vertex_Data{ pos = {x, y, z}, normal = u32(side) }
-    top_right := Vertex_Data{ pos = {x, y, z}, normal = u32(side) }
+    top_left  := Vertex_Data{ pos = {x, y, z}, normal = u32(side), texcoord = {0.0, 0.0} }
+    bot_left  := Vertex_Data{ pos = {x, y, z}, normal = u32(side), texcoord = {0.0, 1.0} }
+    bot_right := Vertex_Data{ pos = {x, y, z}, normal = u32(side), texcoord = {1.0, 1.0} }
+    top_right := Vertex_Data{ pos = {x, y, z}, normal = u32(side), texcoord = {1.0, 0.0} }
 
     switch side {
       case .Left:
@@ -65,7 +66,10 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
         top_right.pos += {-0.5,  0.5, -0.5}
     }
 
+    //               0         1         2          3
     append(vertices, top_left, bot_left, bot_right, top_right)
+    //               0         3          1         2
+    // append(vertices, top_left, top_right, bot_left, bot_right)
     append(indices,
       0 + base_idx, 1 + base_idx, 2 + base_idx,
       2 + base_idx, 3 + base_idx, 0 + base_idx,

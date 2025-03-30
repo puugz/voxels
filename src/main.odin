@@ -60,7 +60,7 @@ Game_Memory :: struct {
   show_imgui_demo:  bool `show`,
   show_ui_overlay:  bool `show`,
 
-  world:        World,
+  world:        ^World,
   camera:       Camera,
   mouse_locked: bool,
   delta_time:   f32,
@@ -168,7 +168,7 @@ game_tick :: proc() -> (quit: bool) {
       // }), 1)
       // sdl.DrawGPUIndexedPrimitives(render_pass, 6, 1, 0, 0, 0)
 
-      render_world(&g_mem.world, render_pass, cmd_buffer)
+      render_world(g_mem.world, render_pass, cmd_buffer)
     }
 
     imgui_impl_sdlgpu3.NewFrame()
@@ -215,6 +215,9 @@ game_init :: proc() {
   if g_mem == nil {
     g_mem  = new(Game_Memory)
     g_mem^ = game_memory_default()
+
+    // @TODO: Other way to do this?
+    g_mem.world = new(World)
   }
 
   assert(sdl.Init({ .VIDEO }), "Could not init SDL3")
@@ -302,7 +305,7 @@ game_init :: proc() {
     num_levels           = 1,
   })
 
-  generate_world(&g_mem.world)
+  generate_world(g_mem.world)
 
   // describe vertex attributes and vertex buffers in the pipeline
   Vertex :: struct {
@@ -492,6 +495,7 @@ game_init :: proc() {
 
 @(export)
 game_shutdown :: proc() {
+  free(g_mem.world)
   free(g_mem)
 }
 

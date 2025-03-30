@@ -6,9 +6,9 @@ import "core:math/noise"
 
 import sdl "vendor:sdl3"
 
-CHUNK_SIZE   :: 24
+CHUNK_SIZE   :: 32
 CHUNK_WIDTH  :: CHUNK_SIZE
-CHUNK_HEIGHT :: 12//CHUNK_SIZE
+CHUNK_HEIGHT :: CHUNK_SIZE
 CHUNK_LENGTH :: CHUNK_SIZE
 CHUNK_VOLUME :: CHUNK_WIDTH * CHUNK_HEIGHT * CHUNK_LENGTH
 
@@ -70,8 +70,8 @@ set_voxel :: #force_inline proc(chunk: ^Chunk, local_x, local_y, local_z: int, t
 }
 
 // @TODO: Sliding window implementation (load/unload chunks as camera moves around)
-WORLD_WIDTH  :: 4
-WORLD_LENGTH :: 4
+WORLD_WIDTH  :: 10
+WORLD_LENGTH :: 10
 
 World :: struct {
   chunks: [WORLD_WIDTH][WORLD_LENGTH]Chunk,

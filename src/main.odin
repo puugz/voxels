@@ -400,20 +400,14 @@ game_init :: proc() {
       // position attr
       location = 0,
       format   = .FLOAT3,
-      offset   = 0, // u32(offset_of(Vertex, pos))
+      offset   = u32(offset_of(Vertex_Data, pos))
     },
-    // {
-    //   // color attr
-    //   location = 1,
-    //   format   = .FLOAT3,
-    //   offset   = u32(offset_of(Vertex, color)),
-    // },
-    // {
-    //   // uv attr
-    //   location = 2,
-    //   format   = .FLOAT2,
-    //   offset   = u32(offset_of(Vertex, uv)),
-    // },
+    {
+      // normal attr
+      location = 1,
+      format   = .UINT,
+      offset   = u32(offset_of(Vertex_Data, normal))
+    },
   }
 
   g_mem.pipeline = sdl.CreateGPUGraphicsPipeline(g_mem.device, {
@@ -424,7 +418,7 @@ game_init :: proc() {
       num_vertex_buffers         = 1,
       vertex_buffer_descriptions = &(sdl.GPUVertexBufferDescription {
         slot = 0,
-        pitch = size_of(vec3),
+        pitch = size_of(Vertex_Data),
       }),
       num_vertex_attributes = u32(len(vertex_attrs)),
       vertex_attributes     = raw_data(vertex_attrs),

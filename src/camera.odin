@@ -15,8 +15,12 @@ Camera :: struct {
 }
 
 init_camera :: proc(camera: ^Camera) {
-  camera.position = {8, 8, 32}
   _ = sdl.SetWindowRelativeMouseMode(g_mem.window, g_mem.mouse_locked)
+  
+  spawn_x := f32(WORLD_WIDTH * CHUNK_WIDTH) * 0.5
+  spawn_y := f32(WORLD_HEIGHT * CHUNK_WIDTH)
+  spawn_z := f32(WORLD_LENGTH * CHUNK_LENGTH) * 0.5
+  camera.position = {spawn_x, spawn_y, spawn_z}
 }
 
 update_camera :: proc(camera: ^Camera) {

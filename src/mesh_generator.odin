@@ -6,77 +6,74 @@ import "core:os"
 import "core:fmt"
 import sdl "vendor:sdl3"
 
-Vertex_Data :: struct {
-  pos: vec3,
+// @TODO: Efficiently pack vertex data.
+Face_Side :: enum {
+  Top,
+  Bottom,
+  Left,
+  Right,
+  Front,
+  Back,
 }
 
+Vertex_Data :: struct {
+  pos:    vec3,
+  normal: u32,
+}
+
+// @TODO: Don't generate faces where chunks are touching.
 generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
-  Face_Side :: enum {
-    Top,
-    Bottom,
-    Left,
-    Right,
-    Front,
-    Back,
-  }
-  
-  add_face :: #force_inline proc(vertices: ^[dynamic]f32, indices: ^[dynamic]u16, xi, yi, zi: int, side: Face_Side) {
-    FLOATS_PER_VERTEX :: 3
-    
-    base_idx := u16(len(vertices) / FLOATS_PER_VERTEX)
+  add_face :: #force_inline proc(vertices: ^[dynamic]Vertex_Data, indices: ^[dynamic]u16, xi, yi, zi: int, side: Face_Side) {
+    base_idx := u16(len(vertices))
     x, y, z := f32(xi), f32(yi), f32(zi)
 
-    top_left  := vec3{x, y, z}
-    bot_left  := vec3{x, y, z}
-    bot_right := vec3{x, y, z}
-    top_right := vec3{x, y, z}
+    top_left  := Vertex_Data{ pos = {x, y, z}, normal = u32(side) }
+    bot_left  := Vertex_Data{ pos = {x, y, z}, normal = u32(side) }
+    bot_right := Vertex_Data{ pos = {x, y, z}, normal = u32(side) }
+    top_right := Vertex_Data{ pos = {x, y, z}, normal = u32(side) }
 
     switch side {
       case .Left:
-        top_left  += {-0.5,  0.5, -0.5}
-        bot_left  += {-0.5, -0.5, -0.5}
-        bot_right += {-0.5, -0.5,  0.5}
-        top_right += {-0.5,  0.5,  0.5}
+        top_left.pos  += {-0.5,  0.5, -0.5}
+        bot_left.pos  += {-0.5, -0.5, -0.5}
+        bot_right.pos += {-0.5, -0.5,  0.5}
+        top_right.pos += {-0.5,  0.5,  0.5}
       case .Right:
-        top_left  += { 0.5,  0.5,  0.5}
-        bot_left  += { 0.5, -0.5,  0.5}
-        bot_right += { 0.5, -0.5, -0.5}
-        top_right += { 0.5,  0.5, -0.5}
+        top_left.pos  += { 0.5,  0.5,  0.5}
+        bot_left.pos  += { 0.5, -0.5,  0.5}
+        bot_right.pos += { 0.5, -0.5, -0.5}
+        top_right.pos += { 0.5,  0.5, -0.5}
       case .Top:
-        top_left  += { 0.5,  0.5,  0.5}
-        bot_left  += { 0.5,  0.5, -0.5}
-        bot_right += {-0.5,  0.5, -0.5}
-        top_right += {-0.5,  0.5,  0.5}
+        top_left.pos  += { 0.5,  0.5,  0.5}
+        bot_left.pos  += { 0.5,  0.5, -0.5}
+        bot_right.pos += {-0.5,  0.5, -0.5}
+        top_right.pos += {-0.5,  0.5,  0.5}
       case .Bottom:
-        top_left  += {-0.5, -0.5,  0.5}
-        bot_left  += {-0.5, -0.5, -0.5}
-        bot_right += { 0.5, -0.5, -0.5}
-        top_right += { 0.5, -0.5,  0.5}
+        top_left.pos  += {-0.5, -0.5,  0.5}
+        bot_left.pos  += {-0.5, -0.5, -0.5}
+        bot_right.pos += { 0.5, -0.5, -0.5}
+        top_right.pos += { 0.5, -0.5,  0.5}
       case .Front:
-        top_left  += {-0.5,  0.5,  0.5}
-        bot_left  += {-0.5, -0.5,  0.5}
-        bot_right += { 0.5, -0.5,  0.5}
-        top_right += { 0.5,  0.5,  0.5}
+        top_left.pos  += {-0.5,  0.5,  0.5}
+        bot_left.pos  += {-0.5, -0.5,  0.5}
+        bot_right.pos += { 0.5, -0.5,  0.5}
+        top_right.pos += { 0.5,  0.5,  0.5}
       case .Back:
-        top_left  += { 0.5,  0.5, -0.5}
-        bot_left  += { 0.5, -0.5, -0.5}
-        bot_right += {-0.5, -0.5, -0.5}
-        top_right += {-0.5,  0.5, -0.5}
+        top_left.pos  += { 0.5,  0.5, -0.5}
+        bot_left.pos  += { 0.5, -0.5, -0.5}
+        bot_right.pos += {-0.5, -0.5, -0.5}
+        top_right.pos += {-0.5,  0.5, -0.5}
     }
 
-    append(vertices, ..top_left[:])
-    append(vertices, ..bot_left[:])
-    append(vertices, ..bot_right[:])
-    append(vertices, ..top_right[:])
-
+    append(vertices, top_left, bot_left, bot_right, top_right)
     append(indices,
       0 + base_idx, 1 + base_idx, 2 + base_idx,
       2 + base_idx, 3 + base_idx, 0 + base_idx,
     )
   }
   
-  vertices: [dynamic]f32; defer delete(vertices)
-  indices:  [dynamic]u16; defer delete(indices)
+  vertices: [dynamic]Vertex_Data; defer delete(vertices)
+  indices:  [dynamic]u16;         defer delete(indices)
 
   // @TODO: greedy meshing
   for i in 0 ..< CHUNK_VOLUME {

@@ -1,5 +1,6 @@
 package main
 
+import "core:time"
 import "core:math"
 import "core:math/linalg"
 import "core:math/noise"
@@ -70,11 +71,12 @@ set_voxel :: #force_inline proc(chunk: ^Chunk, local_x, local_y, local_z: int, t
 }
 
 // @TODO: Sliding window implementation (load/unload chunks as camera moves around)
-WORLD_WIDTH  :: 10
-WORLD_LENGTH :: 10
+WORLD_WIDTH  :: 8
+WORLD_HEIGHT :: 4
+WORLD_LENGTH :: 8
 
 World :: struct {
-  chunks: [WORLD_WIDTH][WORLD_LENGTH]Chunk,
+  chunks: [WORLD_WIDTH][WORLD_HEIGHT][WORLD_LENGTH]Chunk,
 }
 
 generate_world :: proc(world: ^World) {
@@ -86,62 +88,93 @@ generate_world :: proc(world: ^World) {
   defer sdl.EndGPUCopyPass(copy_pass)
   assert(copy_pass != nil)
 
+  // SEED    :: 12345
+  seed := time.now()._nsec
+
   for cx in 0 ..< WORLD_WIDTH {
-    for cz in 0 ..< WORLD_LENGTH {
-      chunk := &world.chunks[cx][cz]
+    for cy in 0 ..< WORLD_HEIGHT {
+      for cz in 0 ..< WORLD_LENGTH {
+        chunk := &world.chunks[cx][cy][cz]
+        OCTAVES :: 5
+        NOISE_SCALE :: 2
       
-      SEED    :: 12345
-      OCTAVES :: 5
-    
-      for i in 0 ..< CHUNK_VOLUME {
-        x := i % CHUNK_WIDTH
-        // y := i / CHUNK_WIDTH % CHUNK_HEIGHT
-        z := i / CHUNK_WIDTH / CHUNK_HEIGHT % CHUNK_LENGTH
-    
-        nx, nz := f64(x) / f64(CHUNK_WIDTH) - 0.5, f64(z) / f64(CHUNK_LENGTH) - 0.5
-        noise_value := int(math.abs(math.floor(
-          octave_noise(SEED, {0.1 * (nz + f64(cz)), 0.1 * (nx + f64(cx))}, OCTAVES) * (CHUNK_HEIGHT - 1)
-        )))
-    
-        for y in 0 ..= noise_value {
-          set_voxel(chunk, x, y, z, .Stone)
+        for i in 0 ..< CHUNK_VOLUME {
+          x := i % CHUNK_WIDTH
+          y := i / CHUNK_WIDTH % CHUNK_HEIGHT
+          z := i / CHUNK_WIDTH / CHUNK_HEIGHT % CHUNK_LENGTH
+
+          // Convert to world coordinates
+          world_x := f64(cx * CHUNK_WIDTH + x)
+          world_y := f64(cy * CHUNK_HEIGHT + y)
+          world_z := f64(cz * CHUNK_LENGTH + z)
+
+          // Normalize coordinates for noise function
+          nx := world_x / f64(CHUNK_WIDTH * WORLD_WIDTH) - 0.5
+          ny := world_y / f64(CHUNK_HEIGHT * WORLD_HEIGHT)
+          nz := world_z / f64(CHUNK_LENGTH * WORLD_LENGTH) - 0.5
+
+          noise_value := octave_noise_3d(seed, {
+            NOISE_SCALE * nz,
+            NOISE_SCALE * ny,
+            NOISE_SCALE * nx
+          }, OCTAVES)// * (CHUNK_HEIGHT * WORLD_HEIGHT - 1)
+
+          // Normalize noise to [0, 1] range
+          normalized_noise := (noise_value + 1) * 0.5
+
+          // Calculate terrain height at this XZ position
+          terrain_height := int(normalized_noise * CHUNK_HEIGHT * WORLD_HEIGHT)
+
+          if int(world_y) <= terrain_height {
+            block_type := Voxel_Type.Stone
+            if int(world_y) == terrain_height {
+              block_type = .Grass
+            } else if int(world_y) > terrain_height - 4 {
+              block_type = .Dirt
+            }
+            set_voxel(chunk, x, y, z, block_type)
+          }
         }
       }
     }
   }
 
   for cx in 0 ..< WORLD_WIDTH {
-    for cz in 0 ..< WORLD_LENGTH {
-      chunk := &world.chunks[cx][cz]
-      generate_mesh(chunk, copy_pass)
+    for cy in 0 ..< WORLD_HEIGHT {
+      for cz in 0 ..< WORLD_LENGTH {
+        chunk := &world.chunks[cx][cy][cz]
+        generate_mesh(chunk, copy_pass)
+      }
     }
   }
 }
 
 render_world :: proc(world: ^World, render_pass: ^sdl.GPURenderPass, cmd_buffer: ^sdl.GPUCommandBuffer) {
   for cx in 0 ..< WORLD_WIDTH {
-    for cz in 0 ..< WORLD_LENGTH {
-      chunk := &world.chunks[cx][cz]
-  
-      if chunk.mesh_generated {
-        model_mat := linalg.matrix4_translate(vec3{
-          f32(cx * CHUNK_WIDTH),
-          f32(0),
-          f32(cz * CHUNK_LENGTH),
-        })
-      
-        ubo := UBO {
-          mvp = g_mem.proj_mat * view_matrix(&g_mem.camera) * model_mat
-        }
+    for cy in 0 ..< WORLD_HEIGHT {
+      for cz in 0 ..< WORLD_LENGTH {
+        chunk := &world.chunks[cx][cy][cz]
     
-        sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding{ buffer = chunk.vertex_buf }), 1)
-        sdl.BindGPUIndexBuffer(render_pass, { buffer = chunk.index_buf }, ._16BIT)
-        sdl.PushGPUVertexUniformData(cmd_buffer, 0, &ubo, size_of(ubo))
-        // sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding{
-        //   texture = g_mem.texture,
-        //   sampler = g_mem.sampler,
-        // }), 1)
-        sdl.DrawGPUIndexedPrimitives(render_pass, chunk.num_indices, 1, 0, 0, 0)
+        if chunk.mesh_generated {
+          model_mat := linalg.matrix4_translate(vec3{
+            f32(cx * CHUNK_WIDTH),
+            f32(cy * CHUNK_HEIGHT),
+            f32(cz * CHUNK_LENGTH),
+          })
+        
+          ubo := UBO {
+            mvp = g_mem.proj_mat * view_matrix(&g_mem.camera) * model_mat
+          }
+      
+          sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding{ buffer = chunk.vertex_buf }), 1)
+          sdl.BindGPUIndexBuffer(render_pass, { buffer = chunk.index_buf }, ._16BIT)
+          sdl.PushGPUVertexUniformData(cmd_buffer, 0, &ubo, size_of(ubo))
+          // sdl.BindGPUFragmentSamplers(render_pass, 0, &(sdl.GPUTextureSamplerBinding{
+          //   texture = g_mem.texture,
+          //   sampler = g_mem.sampler,
+          // }), 1)
+          sdl.DrawGPUIndexedPrimitives(render_pass, chunk.num_indices, 1, 0, 0, 0)
+        }
       }
     }
   }

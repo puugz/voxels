@@ -11,12 +11,8 @@ layout(location=0) in int a_data;
 //          | Normal
 //          TexCoord
 
-layout(location=0) out int v_normal;
+layout(location=0) out int v_normal_idx;
 layout(location=1) out vec2 v_texcoord;
-
-#define MASK_6BITS 63
-#define MASK_3BITS 7
-#define MASK_2BITS 3
 
 const vec2 TEXCOORDS[] = {
   vec2(0, 0), // Top_Left
@@ -25,16 +21,16 @@ const vec2 TEXCOORDS[] = {
   vec2(1, 1), // Bottom_Right
 };
 
+int bits(int n) {
+  return (1 << n) - 1;
+}
+
 void main() {
-  int x        =  a_data        & MASK_6BITS;
-  int y        = (a_data >> 6)  & MASK_6BITS;
-  int z        = (a_data >> 12) & MASK_6BITS;
-  int normal   = (a_data >> 18) & MASK_3BITS;
-  int texcoord = (a_data >> 21) & MASK_2BITS;
+  float x = float((a_data)       & bits(6));
+  float y = float((a_data >> 6)  & bits(6));
+  float z = float((a_data >> 12) & bits(6));
+  v_normal_idx =           (a_data >> 18) & bits(3);
+  v_texcoord   = TEXCOORDS[(a_data >> 21) & bits(2)];
 
-  vec3 position = vec3(float(x), float(y), float(z));
-
-  v_normal   = normal;
-  v_texcoord = TEXCOORDS[texcoord];
-  gl_Position = mvp * vec4(position, 1.);
+  gl_Position = mvp * vec4(vec3(x, y, z), 1.);
 }

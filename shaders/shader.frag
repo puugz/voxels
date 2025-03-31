@@ -1,6 +1,6 @@
 #version 460
 
-layout(location=0) in flat int v_normal;
+layout(location=0) in flat int v_normal_idx;
 layout(location=1) in vec2 v_texcoord;
 
 layout(location=0) out vec4 v_frag_color;
@@ -17,7 +17,7 @@ const vec3 NORMALS[] = {
 };
 
 void main() {
-  vec3 normal    = NORMALS[v_normal];
+  vec3 normal    = NORMALS[v_normal_idx];
   vec3 light_dir = normalize(vec3(0.8, 1, 0.3));
 
   float ambient  = 0.3;

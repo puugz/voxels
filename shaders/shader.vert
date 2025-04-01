@@ -33,7 +33,7 @@ void main() {
   float z = float((a_data >> 12) & bits(6));
   v_normal_idx =           (a_data >> 18) & bits(3);
   v_texcoord   = TEXCOORDS[(a_data >> 21) & bits(2)];
-  v_voxel_type = (a_data >> 23) & bits(3);
+  v_voxel_type =           (a_data >> 24) & bits(4);
 
   gl_Position = mvp * vec4(vec3(x, y, z), 1.);
 }

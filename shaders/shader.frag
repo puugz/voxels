@@ -46,7 +46,7 @@ vec2 uv_offset(vec3 block_face) {
     case Voxel_Stone:       offset = vec2(1, 0); break;
     case Voxel_Cobblestone: offset = vec2(0, 1); break;
     case Voxel_Dirt:        offset = vec2(2, 0); break;
-    case Voxel_Grass: 
+    case Voxel_Grass:
       if (block_face == Face_Top) {
         offset = vec2(0, 0);
       } else if (block_face == Face_Bottom) {
@@ -55,16 +55,16 @@ vec2 uv_offset(vec3 block_face) {
         offset = vec2(3, 0);
       }
       break;
-    case Voxel_Glass:    offset = vec2(1, 3);   break;
-    case Voxel_Water:    offset = vec2(13, 12); break;
-    case Voxel_Oak_Log: 
+    case Voxel_Glass: offset = vec2(1, 3);   break;
+    case Voxel_Water: offset = vec2(13, 12); break;
+    case Voxel_Oak_Log:
       if (block_face == Face_Top || block_face == Face_Bottom) {
         offset = vec2(5, 1);
       } else {
-        offset = vec2(4, 2);
+        offset = vec2(4, 1);
       }
       break;
-    case Voxel_Oak_Leaves: offset = vec2(5, 2); break;
+    case Voxel_Oak_Leaves: offset = vec2(5, 3); break;
     default: break;
   }
   return vec2(

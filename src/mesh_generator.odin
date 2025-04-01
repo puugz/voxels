@@ -24,15 +24,15 @@ Tex_Coord :: enum byte {
 }
 
 Packed_Vertex_Data :: i32
-// 000000TTTVVNNNZZZZZZYYYYYYXXXXXX
-//       ^  ^ ^  ^     ^     ^
-//       |  | |  Z     Y     X
-//       |  | Normal
-//       |  TexCoord
-//       Voxel type (Excluding None)
+// 00000TTTTVVNNNZZZZZZYYYYYYXXXXXX
+//      ^   ^ ^  ^     ^     ^
+//      |   | |  Z     Y     X
+//      |   | Normal
+//      |   TexCoord
+//      Voxel type (Excluding None)
 
 pack_vertex_data :: proc(pos: vec3b, normal: Face_Side, texcoord: Tex_Coord, type: Voxel_Type) -> Packed_Vertex_Data {
-  return (cast(Packed_Vertex_Data)(int(type) - 1) << 23) |
+  return (cast(Packed_Vertex_Data)(int(type) - 1) << 24) |
          (cast(Packed_Vertex_Data)(texcoord) << 21) |
          (cast(Packed_Vertex_Data)(normal)   << 18) |
          (cast(Packed_Vertex_Data)(pos.z)    << 12) |

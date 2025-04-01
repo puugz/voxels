@@ -5,6 +5,7 @@ import "core:time"
 import "core:math"
 import "core:math/linalg"
 import "core:math/noise"
+import "core:math/rand"
 
 import sdl "vendor:sdl3"
 
@@ -140,6 +141,49 @@ generate_world :: proc(world: ^World) {
   // seed := i64(12345)
   seed := time.now()._nsec
 
+  plant_tree :: proc(chunk: ^Chunk, x, y, z: int) {
+    for xx in -2 ..= 2 {
+      for yy in 3 ..< 6 {
+        for zz in -2 ..= 2 {
+          voxel := get_voxel(chunk, x+xx, y+yy, z+zz)
+          if voxel == nil do return
+          if voxel != nil && voxel.type != .None do return // not enough space
+        }
+      }
+    }
+
+    for yy in 0 ..< 5 {
+      set_voxel(chunk, x, y+yy, z, .Oak_Log)
+    }
+
+    for xx in -2 ..= 2 {
+      for yy in 3 ..< 5 {
+        for zz in -2 ..= 2 {
+          voxel := get_voxel(chunk, x+xx, y+yy, z+zz)
+
+          if voxel != nil {
+            set_voxel(chunk, x+xx, y+yy, z+zz, .Oak_Leaves)
+          }
+        }
+      }
+    }
+
+    yy := 5
+    for xx in -1 ..= 1 {
+      for zz in -1 ..= 1 {
+        voxel := get_voxel(chunk, x+xx, y+yy, z+zz)
+        if voxel != nil do voxel.type = .Oak_Leaves
+      }
+    }
+
+    yy += 1
+    set_voxel(chunk, x,   y+yy, z-1, .Oak_Leaves)
+    set_voxel(chunk, x,   y+yy, z, .Oak_Leaves)
+    set_voxel(chunk, x,   y+yy, z+1, .Oak_Leaves)
+    set_voxel(chunk, x+1, y+yy, z, .Oak_Leaves)
+    set_voxel(chunk, x-1, y+yy, z, .Oak_Leaves)
+  }
+
   for cx in 0 ..< WORLD_WIDTH {
     for cy in 0 ..< WORLD_HEIGHT {
       for cz in 0 ..< WORLD_LENGTH {
@@ -177,6 +221,9 @@ generate_world :: proc(world: ^World) {
               block_type = .Bedrock
             } else if int(wy) == terrain_height {
               block_type = .Grass
+              if rand.int_max(40) == 0 {
+                plant_tree(chunk, x, y+1, z)
+              }
             } else if int(wy) > terrain_height - 4 {
               block_type = .Dirt
             }

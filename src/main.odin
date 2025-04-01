@@ -78,7 +78,7 @@ Game_Memory :: struct {
 game_memory_default :: #force_inline proc() -> Game_Memory {
   return {
     fov             = linalg.to_radians(f32(70)),
-    clear_color     = rgba(0x101010FF),
+    clear_color     = rgba(0x65C8F1FF),
     show_ui_overlay = true,
   }
 }

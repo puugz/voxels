@@ -24,14 +24,16 @@ Tex_Coord :: enum byte {
 }
 
 Packed_Vertex_Data :: i32
-// 000000000VVNNNZZZZZZYYYYYYXXXXXX
-//          ^ ^  ^     ^     ^
-//          | |  Z     Y     X
-//          | Normal
-//          TexCoord
+// 000000TTTVVNNNZZZZZZYYYYYYXXXXXX
+//       ^  ^ ^  ^     ^     ^
+//       |  | |  Z     Y     X
+//       |  | Normal
+//       |  TexCoord
+//       Voxel type (Excluding None)
 
-pack_vertex_data :: proc(pos: vec3b, normal: Face_Side, texcoord: Tex_Coord) -> Packed_Vertex_Data {
-  return (cast(Packed_Vertex_Data)(texcoord) << 21) |
+pack_vertex_data :: proc(pos: vec3b, normal: Face_Side, texcoord: Tex_Coord, type: Voxel_Type) -> Packed_Vertex_Data {
+  return (cast(Packed_Vertex_Data)(int(type) - 1) << 23) |
+         (cast(Packed_Vertex_Data)(texcoord) << 21) |
          (cast(Packed_Vertex_Data)(normal)   << 18) |
          (cast(Packed_Vertex_Data)(pos.z)    << 12) |
          (cast(Packed_Vertex_Data)(pos.y)    << 6 ) |
@@ -40,7 +42,7 @@ pack_vertex_data :: proc(pos: vec3b, normal: Face_Side, texcoord: Tex_Coord) -> 
 
 // @TODO: Don't generate faces where chunks are touching.
 generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
-  add_face :: #force_inline proc(vertices: ^[dynamic]Packed_Vertex_Data, indices: ^[dynamic]u16, xi, yi, zi: int, side: Face_Side) {
+  add_face :: #force_inline proc(vertices: ^[dynamic]Packed_Vertex_Data, indices: ^[dynamic]u16, xi, yi, zi: int, side: Face_Side, type: Voxel_Type) {
     base_idx := u16(len(vertices))
 
     top_left  := vec3b{ byte(xi), byte(yi), byte(zi) }
@@ -81,10 +83,10 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
         top_right += {0, 1, 0}
     }
 
-    tl_packed := pack_vertex_data(top_left, side, .Top_Left)
-    bl_packed := pack_vertex_data(bot_left, side, .Bottom_Left)
-    br_packed := pack_vertex_data(bot_right, side, .Bottom_Right)
-    tr_packed := pack_vertex_data(top_right, side, .Top_Right)
+    tl_packed := pack_vertex_data(top_left, side, .Top_Left, type)
+    bl_packed := pack_vertex_data(bot_left, side, .Bottom_Left, type)
+    br_packed := pack_vertex_data(bot_right, side, .Bottom_Right, type)
+    tr_packed := pack_vertex_data(top_right, side, .Top_Right, type)
 
     //               0          1          2          3
     append(vertices, tl_packed, bl_packed, br_packed, tr_packed)
@@ -122,12 +124,12 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
     }
 
     // @TODO: Vertex pulling
-    if check_face(voxel, voxel_top)    do add_face(&vertices, &indices, x, y, z, .Top)
-    if check_face(voxel, voxel_bottom) do add_face(&vertices, &indices, x, y, z, .Bottom)
-    if check_face(voxel, voxel_left)   do add_face(&vertices, &indices, x, y, z, .Left)
-    if check_face(voxel, voxel_right)  do add_face(&vertices, &indices, x, y, z, .Right)
-    if check_face(voxel, voxel_front)  do add_face(&vertices, &indices, x, y, z, .Front)
-    if check_face(voxel, voxel_back)   do add_face(&vertices, &indices, x, y, z, .Back)
+    if check_face(voxel, voxel_top)    do add_face(&vertices, &indices, x, y, z, .Top, voxel.type)
+    if check_face(voxel, voxel_bottom) do add_face(&vertices, &indices, x, y, z, .Bottom, voxel.type)
+    if check_face(voxel, voxel_left)   do add_face(&vertices, &indices, x, y, z, .Left, voxel.type)
+    if check_face(voxel, voxel_right)  do add_face(&vertices, &indices, x, y, z, .Right, voxel.type)
+    if check_face(voxel, voxel_front)  do add_face(&vertices, &indices, x, y, z, .Front, voxel.type)
+    if check_face(voxel, voxel_back)   do add_face(&vertices, &indices, x, y, z, .Back, voxel.type)
   }
 
   vertices_bytes := len(vertices) * size_of(vertices[0])

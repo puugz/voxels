@@ -23,8 +23,8 @@ Voxel_Type :: enum byte {
   Grass,
   Glass,
   Water,
-  Obsidian,
-  TNT,
+  Oak_Log,
+  Oak_Leaves,
 }
 
 Voxel :: struct {
@@ -113,7 +113,7 @@ world_to_local_pos :: proc(world_x, world_y, world_z: int) -> (local_x, local_y,
 
 // @TODO: Sliding window implementation (load/unload chunks as camera moves around)
 WORLD_WIDTH  :: 8
-WORLD_HEIGHT :: 4
+WORLD_HEIGHT :: 8
 WORLD_LENGTH :: 8
 
 World :: struct {
@@ -137,9 +137,8 @@ generate_world :: proc(world: ^World) {
   defer sdl.EndGPUCopyPass(copy_pass)
   assert(copy_pass != nil)
 
-  // SEED    :: 12345
-  // seed := i64(12345)
-  seed := time.now()._nsec
+  seed := i64(12345)
+  // seed := time.now()._nsec
 
   for cx in 0 ..< WORLD_WIDTH {
     for cy in 0 ..< WORLD_HEIGHT {
@@ -155,15 +154,13 @@ generate_world :: proc(world: ^World) {
           y := i / CHUNK_WIDTH % CHUNK_HEIGHT
           z := i / CHUNK_WIDTH / CHUNK_HEIGHT % CHUNK_LENGTH
 
-          // Convert to world coordinates
-          world_x := f64(cx * CHUNK_WIDTH + x)
-          world_y := f64(cy * CHUNK_HEIGHT + y)
-          world_z := f64(cz * CHUNK_LENGTH + z)
+          wx := f64(cx * CHUNK_WIDTH  + x)
+          wy := f64(cy * CHUNK_HEIGHT + y)
+          wz := f64(cz * CHUNK_LENGTH + z)
 
-          // Normalize coordinates for noise function
-          nx := world_x / f64(CHUNK_WIDTH * WORLD_WIDTH) - 0.5
-          ny := world_y / f64(CHUNK_HEIGHT * WORLD_HEIGHT)
-          nz := world_z / f64(CHUNK_LENGTH * WORLD_LENGTH) - 0.5
+          nx := wx / f64(CHUNK_WIDTH  * WORLD_WIDTH)  - 0.5
+          ny := wy / f64(CHUNK_HEIGHT * WORLD_HEIGHT) - 0.5
+          nz := wz / f64(CHUNK_LENGTH * WORLD_LENGTH) - 0.5
 
           noise_value := octave_noise_3d(seed, {
             NOISE_SCALE * nz,
@@ -171,17 +168,16 @@ generate_world :: proc(world: ^World) {
             NOISE_SCALE * nx,
           }, OCTAVES)// * (CHUNK_HEIGHT * WORLD_HEIGHT - 1)
 
-          // Normalize noise to [0, 1] range
           normalized_noise := (noise_value + 1) * 0.5
-
-          // Calculate terrain height at this XZ position
           terrain_height := int(normalized_noise * CHUNK_HEIGHT * WORLD_HEIGHT)
 
-          if int(world_y) <= terrain_height {
+          if int(wy) <= terrain_height {
             block_type := Voxel_Type.Stone
-            if int(world_y) == terrain_height {
+            if int(wy) == 0 {
+              block_type = .Bedrock
+            } else if int(wy) == terrain_height {
               block_type = .Grass
-            } else if int(world_y) > terrain_height - 4 {
+            } else if int(wy) > terrain_height - 4 {
               block_type = .Dirt
             }
             set_voxel(chunk, x, y, z, block_type)

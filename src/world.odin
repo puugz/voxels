@@ -137,8 +137,8 @@ generate_world :: proc(world: ^World) {
   defer sdl.EndGPUCopyPass(copy_pass)
   assert(copy_pass != nil)
 
-  seed := i64(12345)
-  // seed := time.now()._nsec
+  // seed := i64(12345)
+  seed := time.now()._nsec
 
   for cx in 0 ..< WORLD_WIDTH {
     for cy in 0 ..< WORLD_HEIGHT {

@@ -6,7 +6,6 @@ import "core:os"
 import "core:fmt"
 import sdl "vendor:sdl3"
 
-// @TODO: Efficiently pack vertex data.
 Face_Side :: enum byte {
   Top,
   Bottom,
@@ -40,7 +39,6 @@ pack_vertex_data :: proc(pos: vec3b, normal: Face_Side, texcoord: Tex_Coord, typ
          (cast(Packed_Vertex_Data)(pos.x));
 }
 
-// @TODO: Don't generate faces where chunks are touching.
 generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
   add_face :: #force_inline proc(vertices: ^[dynamic]Packed_Vertex_Data, indices: ^[dynamic]u16, xi, yi, zi: int, side: Face_Side, type: Voxel_Type) {
     base_idx := u16(len(vertices))

@@ -33,10 +33,6 @@ Voxel :: struct {
   type: Voxel_Type,
 }
 
-is_transparent :: #force_inline proc(voxel: ^Voxel) -> bool {
-  return voxel == nil || voxel.type == .None || voxel.type == .Glass || voxel.type == .Water
-}
-
 Chunk :: struct {
   using local_position: [3]byte,
   voxels:               [CHUNK_VOLUME]Voxel,
@@ -46,6 +42,10 @@ Chunk :: struct {
 
   vertex_buf: ^sdl.GPUBuffer,
   index_buf:  ^sdl.GPUBuffer,
+}
+
+is_transparent :: #force_inline proc(voxel: ^Voxel) -> bool {
+  return voxel == nil || voxel.type == .None || voxel.type == .Glass || voxel.type == .Water
 }
 
 get_voxel_world :: #force_inline proc(world: ^World, world_x, world_y, world_z: int) -> ^Voxel {
@@ -138,9 +138,6 @@ generate_world :: proc(world: ^World) {
   defer sdl.EndGPUCopyPass(copy_pass)
   assert(copy_pass != nil)
 
-  // seed := i64(12345)
-  seed := time.now()._nsec
-
   plant_tree :: proc(chunk: ^Chunk, x, y, z: int) {
     for xx in -2 ..= 2 {
       for yy in 3 ..< 6 {
@@ -184,6 +181,9 @@ generate_world :: proc(world: ^World) {
     set_voxel(chunk, x-1, y+yy, z, .Oak_Leaves)
   }
 
+  seed := time.now()._nsec
+  // seed := i64(12345)
+
   for cx in 0 ..< WORLD_WIDTH {
     for cy in 0 ..< WORLD_HEIGHT {
       for cz in 0 ..< WORLD_LENGTH {
@@ -192,39 +192,39 @@ generate_world :: proc(world: ^World) {
 
         OCTAVES :: 5
         NOISE_SCALE :: 2
-      
+
         for i in 0 ..< CHUNK_VOLUME {
           x := i % CHUNK_WIDTH
           y := i / CHUNK_WIDTH % CHUNK_HEIGHT
           z := i / CHUNK_WIDTH / CHUNK_HEIGHT % CHUNK_LENGTH
 
-          wx := f64(cx * CHUNK_WIDTH  + x)
-          wy := f64(cy * CHUNK_HEIGHT + y)
-          wz := f64(cz * CHUNK_LENGTH + z)
+          wx := cx * CHUNK_WIDTH  + x
+          wy := cy * CHUNK_HEIGHT + y
+          wz := cz * CHUNK_LENGTH + z
 
-          nx := wx / f64(CHUNK_WIDTH  * WORLD_WIDTH)  - 0.5
-          ny := wy / f64(CHUNK_HEIGHT * WORLD_HEIGHT) - 0.5
-          nz := wz / f64(CHUNK_LENGTH * WORLD_LENGTH) - 0.5
+          nx := f64(wx) / f64(CHUNK_WIDTH  * WORLD_WIDTH)  - 0.5
+          ny := f64(wy) / f64(CHUNK_HEIGHT * WORLD_HEIGHT) - 0.5
+          nz := f64(wz) / f64(CHUNK_LENGTH * WORLD_LENGTH) - 0.5
 
           noise_value := octave_noise_3d(seed, {
             NOISE_SCALE * nz,
-            NOISE_SCALE * ny,
+            NOISE_SCALE * math.lerp(1.0, 0.4, math.smoothstep(80.0, 120.0, f64(wy))) * ny,
             NOISE_SCALE * nx,
-          }, OCTAVES)// * (CHUNK_HEIGHT * WORLD_HEIGHT - 1)
+          }, OCTAVES)
 
           normalized_noise := (noise_value + 1) * 0.5
-          terrain_height := int(normalized_noise * CHUNK_HEIGHT * WORLD_HEIGHT)
+          terrain_height   := int(normalized_noise * CHUNK_HEIGHT * WORLD_HEIGHT)
 
-          if int(wy) <= terrain_height {
+          if wy <= terrain_height {
             block_type := Voxel_Type.Stone
-            if int(wy) == 0 {
+            if wy == 0 {
               block_type = .Bedrock
-            } else if int(wy) == terrain_height {
+            } else if wy == terrain_height {
               block_type = .Grass
-              if rand.int_max(40) == 0 {
+              if rand.int_max(40) == 0 && wy > 100 {
                 plant_tree(chunk, x, y+1, z)
               }
-            } else if int(wy) > terrain_height - 4 {
+            } else if wy > terrain_height - 4 {
               block_type = .Dirt
             }
             set_voxel(chunk, x, y, z, block_type)

@@ -6,7 +6,6 @@ import "core:os"
 import "core:fmt"
 import sdl "vendor:sdl3"
 
-// @TODO: Efficiently pack vertex data.
 Face_Side :: enum byte {
   Top,
   Bottom,

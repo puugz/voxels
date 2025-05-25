@@ -16,7 +16,7 @@ Camera :: struct {
 
 init_camera :: proc(camera: ^Camera) {
   _ = sdl.SetWindowRelativeMouseMode(g_mem.window, g_mem.mouse_locked)
-  
+
   spawn_x := f32(WORLD_WIDTH * CHUNK_WIDTH) * 0.5
   spawn_y := f32(WORLD_HEIGHT * CHUNK_WIDTH)
   spawn_z := f32(WORLD_LENGTH * CHUNK_LENGTH) * 0.5
@@ -55,4 +55,66 @@ update_camera :: proc(camera: ^Camera) {
 
 view_matrix :: #force_inline proc(camera: ^Camera) -> mat4 {
   return linalg.matrix4_look_at_f32(camera.position, camera.position + camera.direction, WORLD_UP)
+}
+
+raycast :: proc(camera: ^Camera, max_distance: f32 = 100.0) -> (hit: bool, pos, normal: vec3) {
+  origin    := camera.position
+  direction := linalg.normalize(camera.direction)
+
+  // init ray
+  current_pos := origin
+  step        := linalg.sign(direction)
+
+  // calculate delta and max
+  delta := vec3{
+    direction.x != 0 ? math.abs(1.0 / direction.x) : f32(math.F32_MAX),
+    direction.y != 0 ? math.abs(1.0 / direction.y) : f32(math.F32_MAX),
+    direction.z != 0 ? math.abs(1.0 / direction.z) : f32(math.F32_MAX),
+  }
+
+  // calculate initial side distances
+  current_block := vec3{
+    math.floor(current_pos.x),
+    math.floor(current_pos.y),
+    math.floor(current_pos.z),
+  }
+
+  side_dist: vec3
+  for i in 0 ..< 3 {
+    if direction[i] > 0 {
+      side_dist[i] = (current_block[i] + 1 - current_pos[i]) * delta[i]
+    } else {
+      side_dist[i] = (current_pos[i] - current_block[i]) * delta[i]
+    }
+  }
+
+  // DDA algorithm
+  for distance: f32 = 0; distance < max_distance; {
+    // find which direction to step in
+    if side_dist.x < side_dist.y && side_dist.x < side_dist.z {
+      distance         = side_dist.x
+      side_dist.x     += delta.x
+      current_block.x += step.x
+      normal           = {-step.x, 0, 0}
+    } else if side_dist.y < side_dist.z {
+      distance         = side_dist.y
+      side_dist.y     += delta.y
+      current_block.y += step.y
+      normal           = {0, -step.y, 0}
+    } else {
+      distance         = side_dist.z
+      side_dist.z     += delta.z
+      current_block.z += step.z
+      normal           = {0, 0, -step.z}
+    }
+  
+    // check if hit a block
+    x, y, z := int(current_block.x), int(current_block.y), int(current_block.z)
+    voxel := get_voxel_world(g_mem.world, x, y, z)
+    if voxel != nil && voxel.type != .None {
+      return true, {f32(x), f32(y), f32(z)}, normal
+    }
+  }
+
+  return false, {}, {}
 }

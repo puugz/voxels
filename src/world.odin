@@ -80,8 +80,8 @@ set_voxel :: #force_inline proc(chunk: ^Chunk, local_x, local_y, local_z: int, t
     local_z < 0 || local_z >= CHUNK_LENGTH {
     return
   }
-  
-  index := local_z * (CHUNK_WIDTH * CHUNK_HEIGHT) + local_y * CHUNK_WIDTH + local_x  
+
+  index := local_z * (CHUNK_WIDTH * CHUNK_HEIGHT) + local_y * CHUNK_WIDTH + local_x
   voxel := &chunk.voxels[index]
 
   voxel.local_position = {i8(local_x), i8(local_y), i8(local_z)}
@@ -92,11 +92,11 @@ world_to_chunk :: proc(world_x, world_y, world_z: int) -> (chunk_x, chunk_y, chu
   chunk_x = world_x / CHUNK_WIDTH
   chunk_y = world_y / CHUNK_HEIGHT
   chunk_z = world_z / CHUNK_LENGTH
-  
+
   if world_x < 0 do chunk_x = (world_x + 1) / CHUNK_WIDTH - 1
   if world_y < 0 do chunk_y = (world_y + 1) / CHUNK_HEIGHT - 1
   if world_z < 0 do chunk_z = (world_z + 1) / CHUNK_LENGTH - 1
-  
+
   return
 }
 
@@ -104,11 +104,11 @@ world_to_local_pos :: proc(world_x, world_y, world_z: int) -> (local_x, local_y,
   local_x = world_x % CHUNK_WIDTH
   local_y = world_y % CHUNK_HEIGHT
   local_z = world_z % CHUNK_LENGTH
-  
+
   if local_x < 0 do local_x += CHUNK_WIDTH
   if local_y < 0 do local_y += CHUNK_HEIGHT
   if local_z < 0 do local_z += CHUNK_LENGTH
-  
+
   return
 }
 
@@ -248,18 +248,18 @@ render_world :: proc(world: ^World, render_pass: ^sdl.GPURenderPass, cmd_buffer:
     for cy in 0 ..< WORLD_HEIGHT {
       for cz in 0 ..< WORLD_LENGTH {
         chunk := &world.chunks[cx][cy][cz]
-    
+
         if chunk.mesh_generated {
           model_mat := linalg.matrix4_translate(vec3{
             f32(cx * CHUNK_WIDTH),
             f32(cy * CHUNK_HEIGHT),
             f32(cz * CHUNK_LENGTH),
           })
-        
+
           ubo := UBO {
             mvp = g_mem.proj_mat * view_matrix(&g_mem.camera) * model_mat,
           }
-      
+
           sdl.BindGPUVertexBuffers(render_pass, 0, &(sdl.GPUBufferBinding{ buffer = chunk.vertex_buf }), 1)
           sdl.BindGPUIndexBuffer(render_pass, { buffer = chunk.index_buf }, ._16BIT)
           sdl.PushGPUVertexUniformData(cmd_buffer, 0, &ubo, size_of(ubo))
@@ -271,5 +271,65 @@ render_world :: proc(world: ^World, render_pass: ^sdl.GPURenderPass, cmd_buffer:
         }
       }
     }
+  }
+}
+
+regenerate_mesh :: proc(chunk: ^Chunk) {
+  copy_cmd_buf := sdl.AcquireGPUCommandBuffer(g_mem.device)
+  defer assert(sdl.SubmitGPUCommandBuffer(copy_cmd_buf))
+
+  copy_pass := sdl.BeginGPUCopyPass(copy_cmd_buf)
+  defer sdl.EndGPUCopyPass(copy_pass)
+
+  if chunk.vertex_buf != nil {
+    sdl.ReleaseGPUBuffer(g_mem.device, chunk.vertex_buf)
+    chunk.vertex_buf = nil
+  }
+  if chunk.index_buf != nil {
+    sdl.ReleaseGPUBuffer(g_mem.device, chunk.index_buf)
+    chunk.index_buf = nil
+  }
+
+  generate_mesh(chunk, copy_pass)
+}
+
+handle_break_block :: proc() {
+  hit, pos, normal := raycast(&g_mem.camera)
+  if !hit do return
+
+  x, y, z := int(pos.x), int(pos.y), int(pos.z)
+
+  // Break block
+  cx, cy, cz := world_to_chunk(x, y, z)
+  lx, ly, lz := world_to_local_pos(x, y, z)
+
+  chunk := &g_mem.world.chunks[cx][cy][cz]
+  voxel := get_voxel(chunk, lx, ly, lz)
+
+  if voxel != nil {
+    voxel.type = .None
+    regenerate_mesh(chunk)
+  }
+}
+
+handle_place_block :: proc() {
+  hit, pos, normal := raycast(&g_mem.camera)
+  if !hit do return
+
+  x, y, z := int(pos.x), int(pos.y), int(pos.z)
+
+  // Place block (in front of the hit block)
+  place_pos := pos + normal
+  px, py, pz := int(place_pos.x), int(place_pos.y), int(place_pos.z)
+
+  cx, cy, cz := world_to_chunk(px, py, pz)
+  lx, ly, lz := world_to_local_pos(px, py, pz)
+
+  chunk := &g_mem.world.chunks[cx][cy][cz]
+  voxel := get_voxel(chunk, lx, ly, lz)
+
+  if voxel != nil && voxel.type == .None {
+    voxel.type = g_mem.selected_block
+    regenerate_mesh(chunk)
   }
 }

@@ -29,7 +29,7 @@ process_input_events :: proc(event: ^sdl.Event) {
       g_mem.mouse_down[event.button.button] = false
     
     case .MOUSE_WHEEL:
-      g_mem.scroll_delta = event.wheel.mouse_y
+      g_mem.scroll_delta = event.wheel.y
 
     case .MOUSE_MOTION:
       g_mem.mouse_delta += { event.motion.xrel, event.motion.yrel }

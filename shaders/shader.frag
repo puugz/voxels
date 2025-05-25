@@ -1,5 +1,21 @@
 #version 460
 
+/*
+https://www.reddit.com/r/sdl/comments/1ir4kq0/heads_up_about_sets_and_bindings_if_youre_using/?rdt=36407
+Compute Pipelines:
+
+set 0: Read-Only storage textures and buffers
+set 1: Read-Write storage textures and buffers
+set 2: Uniform buffers
+
+Graphics Pipelines:
+
+set 0: Samplers, textures and storage buffers available to the vertex shader
+set 1: Uniform buffers available to the vertex shader
+set 2: Samplers, textures and storage buffers available to the fragment shader
+set 3: Uniform buffers available to the fragment shader
+*/
+
 layout(location=0) in flat int v_normal_idx;
 layout(location=1) in vec2 v_texcoord;
 layout(location=2) in flat int v_voxel_type;
@@ -82,11 +98,10 @@ void main() {
   float lighting = diffuse + ambient;
 
   vec2 uv = uv_offset(normal);
-  
-  // vec3 tex_color   = texture(u_texture, v_texcoord).rgb;
-  vec3 tex_color   = texture(u_texture, uv).rgb;
-  // vec3 tex_color = vec3(uv.x, uv.y, 0);
-  vec3 final_color = tex_color * lighting;
 
+  vec4 tex_color = texture(u_texture, uv);
+  if (tex_color.a < 0.1) discard;
+
+  vec3 final_color = tex_color.rgb * lighting;
   v_frag_color = vec4(final_color, 1.0);
 }

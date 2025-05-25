@@ -119,7 +119,7 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
     voxel_back   := get_voxel_world(g_mem.world, wx    , wy    , wz - 1)
 
     check_face :: #force_inline proc(voxel, other: ^Voxel) -> bool {
-      return other == nil || other.type == .None// || (voxel.type != other.type && is_transparent(other))
+      return other == nil || other.type == .None || (voxel.type != other.type && is_transparent(other))
     }
 
     // @TODO: Vertex pulling

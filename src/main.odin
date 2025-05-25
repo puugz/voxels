@@ -19,8 +19,8 @@ import "imgui/imgui_impl_sdlgpu3"
 
 // @TODO: https://www.gafferongames.com/post/fix_your_timestep/
 
-WINDOW_WIDTH  :: 1024
-WINDOW_HEIGHT :: 768
+WINDOW_WIDTH  :: 1300
+WINDOW_HEIGHT :: 800
 
 DISABLE_DOCKING :: #config(DISABLE_DOCKING, false)
 

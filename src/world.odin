@@ -15,17 +15,46 @@ CHUNK_HEIGHT :: CHUNK_SIZE
 CHUNK_LENGTH :: CHUNK_SIZE
 CHUNK_VOLUME :: CHUNK_WIDTH * CHUNK_HEIGHT * CHUNK_LENGTH
 
+// This has to match in the fragment shader.
 Voxel_Type :: enum byte {
   None,
-  Bedrock,
-  Stone,
-  Cobblestone,
-  Dirt,
   Grass,
-  Glass,
-  Water,
+  Dirt,
+  Stone,
+  Stone_Slab,
+  Cobblestone,
+  Oak_Planks,
   Oak_Log,
   Oak_Leaves,
+  Bricks,
+  TNT,
+  Sand,
+  Gravel,
+  Iron_Block,
+  Gold_Block,
+  Diamond_Block,
+  Chest,
+  Gold_Ore,
+  Iron_Ore,
+  Coal_Ore,
+  Diamond_Ore,
+  Redstone_Ore,
+  Bookshelf,
+  Mossy_Cobblestone,
+  Obsidian,
+  Crafting_Table,
+  Furnace,
+  Furnace_On,
+  Snow,
+  Snowy_Grass,
+  Wool,
+  Netherrack,
+  Glowstone,
+  Sponge,
+  Bedrock,
+  Glass,
+  Water,
+  Lava,
 }
 
 Voxel :: struct {
@@ -274,23 +303,50 @@ render_world :: proc(world: ^World, render_pass: ^sdl.GPURenderPass, cmd_buffer:
   }
 }
 
-regenerate_mesh :: proc(chunk: ^Chunk) {
+regenerate_chunk_and_neighbors :: proc(cx, cy, cz, lx, ly, lz: int) {
+  ivec3 :: [3]int
+
+  chunks_to_update: [dynamic]ivec3;
+  chunks_to_update.allocator = context.temp_allocator
+
+  // update self
+  append(&chunks_to_update, ivec3{cx, cy, cz})
+
+  // update chunks on edge
+  if lx == 0              do append(&chunks_to_update, ivec3{cx-1, cy, cz})
+  if lx == CHUNK_WIDTH-1  do append(&chunks_to_update, ivec3{cx+1, cy, cz})
+  if ly == 0              do append(&chunks_to_update, ivec3{cx, cy-1, cz})
+  if ly == CHUNK_HEIGHT-1 do append(&chunks_to_update, ivec3{cx, cy+1, cz})
+  if lz == 0              do append(&chunks_to_update, ivec3{cx, cy, cz-1})
+  if lz == CHUNK_LENGTH-1 do append(&chunks_to_update, ivec3{cx, cy, cz+1})
+
+  // regen all chunks' mesh
   copy_cmd_buf := sdl.AcquireGPUCommandBuffer(g_mem.device)
   defer assert(sdl.SubmitGPUCommandBuffer(copy_cmd_buf))
 
   copy_pass := sdl.BeginGPUCopyPass(copy_cmd_buf)
   defer sdl.EndGPUCopyPass(copy_pass)
 
-  if chunk.vertex_buf != nil {
-    sdl.ReleaseGPUBuffer(g_mem.device, chunk.vertex_buf)
-    chunk.vertex_buf = nil
-  }
-  if chunk.index_buf != nil {
-    sdl.ReleaseGPUBuffer(g_mem.device, chunk.index_buf)
-    chunk.index_buf = nil
-  }
+  for chunk_pos in chunks_to_update {
+    cx, cy, cz := chunk_pos.x, chunk_pos.y, chunk_pos.z
+    if cx < 0 || cx >= WORLD_WIDTH || 
+       cy < 0 || cy >= WORLD_HEIGHT || 
+       cz < 0 || cz >= WORLD_LENGTH {
+      continue
+    }
 
-  generate_mesh(chunk, copy_pass)
+    chunk := &g_mem.world.chunks[cx][cy][cz]
+    if chunk.vertex_buf != nil {
+      sdl.ReleaseGPUBuffer(g_mem.device, chunk.vertex_buf)
+      chunk.vertex_buf = nil
+    }
+    if chunk.index_buf != nil {
+      sdl.ReleaseGPUBuffer(g_mem.device, chunk.index_buf)
+      chunk.index_buf = nil
+    }
+
+    generate_mesh(chunk, copy_pass)
+  }
 }
 
 handle_break_block :: proc() {
@@ -299,7 +355,6 @@ handle_break_block :: proc() {
 
   x, y, z := int(pos.x), int(pos.y), int(pos.z)
 
-  // Break block
   cx, cy, cz := world_to_chunk(x, y, z)
   lx, ly, lz := world_to_local_pos(x, y, z)
 
@@ -308,7 +363,7 @@ handle_break_block :: proc() {
 
   if voxel != nil {
     voxel.type = .None
-    regenerate_mesh(chunk)
+    regenerate_chunk_and_neighbors(cx, cy, cz, lx, ly, lz)
   }
 }
 
@@ -318,7 +373,7 @@ handle_place_block :: proc() {
 
   x, y, z := int(pos.x), int(pos.y), int(pos.z)
 
-  // Place block (in front of the hit block)
+  // place block infront of the hit block
   place_pos := pos + normal
   px, py, pz := int(place_pos.x), int(place_pos.y), int(place_pos.z)
 
@@ -330,6 +385,6 @@ handle_place_block :: proc() {
 
   if voxel != nil && voxel.type == .None {
     voxel.type = g_mem.selected_block
-    regenerate_mesh(chunk)
+    regenerate_chunk_and_neighbors(cx, cy, cz, lx, ly, lz)
   }
 }

@@ -19,8 +19,8 @@ import "imgui/imgui_impl_sdlgpu3"
 
 // @TODO: https://www.gafferongames.com/post/fix_your_timestep/
 
-WINDOW_WIDTH  :: 1024
-WINDOW_HEIGHT :: 768
+WINDOW_WIDTH  :: 1300
+WINDOW_HEIGHT :: 800
 
 DISABLE_DOCKING :: #config(DISABLE_DOCKING, false)
 
@@ -60,6 +60,8 @@ Game_Memory :: struct {
   mouse_locked: bool,
   delta_time:   f32,
 
+  selected_block: Voxel_Type,
+
   // input state
   key_down:   #sparse[sdl.Scancode]bool,
   mouse_down: [SDL_MOUSEKEY_COUNT]bool,
@@ -80,6 +82,7 @@ game_memory_default :: #force_inline proc() -> Game_Memory {
     fov             = linalg.to_radians(f32(70)),
     clear_color     = rgba(0x65C8F1FF),
     show_ui_overlay = true,
+    selected_block  = .Dirt,
   }
 }
 
@@ -118,6 +121,41 @@ game_tick :: proc() -> (quit: bool) {
 
   // update
   g_mem.proj_mat = linalg.matrix4_perspective(g_mem.fov, aspect_ratio, 0.001, 1000)
+
+  if g_mem.mouse_locked {
+    if mouse_pressed(sdl.BUTTON_LEFT) {
+      handle_break_block()
+    }
+    if mouse_pressed(sdl.BUTTON_RIGHT) {
+      handle_place_block()
+    }
+
+    // block selection (scroll)
+    VOXEL_TYPE_FIRST :: u8(Voxel_Type.None) + 1 // skip None
+    VOXEL_TYPE_LAST  :: u8(len(Voxel_Type) - 1)
+
+    // if g_mem.scroll_delta != 0 {
+    //   scroll := g_mem.scroll_delta
+    //   log.debugf("%f", scroll)
+    // }
+    if g_mem.scroll_delta > 0 { // scroll up
+      // -
+      index := u8(g_mem.selected_block)
+      index += 1
+      if index > VOXEL_TYPE_LAST {
+        index = VOXEL_TYPE_FIRST
+      }
+      g_mem.selected_block = Voxel_Type(index)
+    } else if g_mem.scroll_delta < 0 {
+      // +
+      index := u8(g_mem.selected_block)
+      index -= 1
+      if index < VOXEL_TYPE_FIRST {
+        index = VOXEL_TYPE_LAST
+      }
+      g_mem.selected_block = Voxel_Type(index)
+    }
+  }
 
   update_camera(&g_mem.camera)
 
@@ -540,6 +578,17 @@ ui_overlay :: proc(p_show: ^bool) {
       if p_show != nil && im.MenuItem("Close") do p_show^ = false
       im.EndPopup()
     }
+
+    if im.Begin("Block Selection") {
+      for type in Voxel_Type {
+        if type == .None do continue
+
+        if im.Selectable(fmt.ctprintf("%v", type), g_mem.selected_block == type) {
+          g_mem.selected_block = type
+        }
+      }
+    }
+    im.End()
   }
   im.End()
 }

@@ -23,12 +23,12 @@ Tex_Coord :: enum byte {
 }
 
 Packed_Vertex_Data :: i32
-// 00000TTTTVVNNNZZZZZZYYYYYYXXXXXX
-//      ^   ^ ^  ^     ^     ^
-//      |   | |  Z     Y     X
-//      |   | Normal
-//      |   TexCoord
-//      Voxel type (Excluding None)
+// 000TTTTTTVVNNNZZZZZZYYYYYYXXXXXX
+//    ^     ^ ^  ^     ^     ^
+//    |     | |  Z     Y     X
+//    |     | Normal
+//    |     TexCoord
+//    Voxel type (Excluding None)
 
 pack_vertex_data :: proc(pos: vec3b, normal: Face_Side, texcoord: Tex_Coord, type: Voxel_Type) -> Packed_Vertex_Data {
   return (cast(Packed_Vertex_Data)(int(type) - 1) << 24) |
@@ -118,7 +118,7 @@ generate_mesh :: proc(chunk: ^Chunk, copy_pass: ^sdl.GPUCopyPass) {
     voxel_back   := get_voxel_world(g_mem.world, wx    , wy    , wz - 1)
 
     check_face :: #force_inline proc(voxel, other: ^Voxel) -> bool {
-      return other == nil || other.type == .None// || (voxel.type != other.type && is_transparent(other))
+      return other == nil || other.type == .None || (voxel.type != other.type && is_transparent(other))
     }
 
     // @TODO: Vertex pulling
